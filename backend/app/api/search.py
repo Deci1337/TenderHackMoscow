@@ -5,7 +5,10 @@ from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database import get_db
-from app.schemas import RankingExplanation, SearchRequest, SearchResponse, STEResult, SuggestResponse
+from app.schemas import (
+    CategoryFacet, FacetsResponse, PopularQueriesResponse, PopularQuery,
+    RankingExplanation, SearchRequest, SearchResponse, STEResult, SuggestResponse,
+)
 from app.services.personalization import get_user_boosts
 from app.services.query_processor import process_query
 from app.services.session_index import get_session_adjustments, get_session_change_reason
@@ -26,6 +29,16 @@ async def search_ste(req: SearchRequest, db: AsyncSession = Depends(get_db)):
       Stage 5: Dev2 CatBoost LTR re-rank (if available)
       Stage 6: Build response with per-item explanations
     """
+    # Track popular queries in Redis (fire-and-forget)
+    try:
+        import redis.asyncio as aioredis
+        from app.config import get_settings
+        _r = aioredis.from_url(get_settings().REDIS_URL, decode_responses=True)
+        await _r.zincrby("popular_queries", 1, req.query.strip().lower())
+        await _r.aclose()
+    except Exception:
+        pass
+
     # --- Stage 1: Query preprocessing ---
     pq = process_query(req.query)
     corrected_query = req.query
@@ -91,7 +104,12 @@ async def search_ste(req: SearchRequest, db: AsyncSession = Depends(get_db)):
     except Exception:
         pass
 
-    scored.sort(key=lambda x: x[1], reverse=True)
+    if req.sort_by == "name":
+        scored.sort(key=lambda x: x[2]["name"] or "")
+    elif req.sort_by == "popularity":
+        scored.sort(key=lambda x: x[1], reverse=True)  # popularity_score from CatBoost features
+    else:
+        scored.sort(key=lambda x: x[1], reverse=True)  # relevance (default)
     page = scored[req.offset: req.offset + req.limit]
 
     # --- Stage 6: Build response ---
@@ -152,20 +170,23 @@ async def _get_candidates(req, pq, corrected_query: str, db: AsyncSession) -> li
 
     # SQL fallback
     fetch_limit = req.limit * 3
-    rows = (await db.execute(text("""
+    category_clause = "AND category = :category" if req.category else ""
+    rows = (await db.execute(text(f"""
         SELECT id, name, category, attributes,
                similarity(name, :orig)                               AS trgm_score,
                ts_rank(name_tsv, to_tsquery('russian', :tsq))        AS ts_score_orig,
                ts_rank(name_tsv, plainto_tsquery('russian', :lemma)) AS ts_score_lemma
         FROM ste
-        WHERE name % :orig
+        WHERE (name % :orig
            OR name_tsv @@ to_tsquery('russian', :tsq)
-           OR name_tsv @@ plainto_tsquery('russian', :lemma)
+           OR name_tsv @@ plainto_tsquery('russian', :lemma))
+           {category_clause}
         ORDER BY trgm_score DESC
         LIMIT :lim
     """), {
         "orig": req.query, "tsq": pq.ts_query,
         "lemma": pq.lemmatized, "lim": fetch_limit,
+        **( {"category": req.category} if req.category else {} ),
     })).mappings().all()
 
     return [
@@ -197,3 +218,36 @@ async def suggest(q: str, db: AsyncSession = Depends(get_db)):
     """), {"q": pq.lemmatized, "prefix": f"{q.strip()}%"})).scalars().all()
 
     return SuggestResponse(suggestions=list(rows))
+
+
+@router.get("/facets", response_model=FacetsResponse)
+async def get_facets(db: AsyncSession = Depends(get_db)):
+    """Return category facets with counts for the filter panel."""
+    rows = (await db.execute(text("""
+        SELECT category, COUNT(*) AS cnt
+        FROM ste
+        WHERE category IS NOT NULL
+        GROUP BY category
+        ORDER BY cnt DESC
+        LIMIT 30
+    """))).mappings().all()
+    return FacetsResponse(
+        categories=[CategoryFacet(name=r["category"], count=r["cnt"]) for r in rows]
+    )
+
+
+@router.get("/popular", response_model=PopularQueriesResponse)
+async def get_popular_queries():
+    """Return top-10 popular queries tracked in Redis."""
+    try:
+        import redis.asyncio as aioredis
+        from app.config import get_settings
+        s = get_settings()
+        r = aioredis.from_url(s.REDIS_URL, decode_responses=True)
+        pairs = await r.zrevrange("popular_queries", 0, 9, withscores=True)
+        await r.aclose()
+        return PopularQueriesResponse(
+            queries=[PopularQuery(query=q, count=int(score)) for q, score in pairs]
+        )
+    except Exception:
+        return PopularQueriesResponse(queries=[])

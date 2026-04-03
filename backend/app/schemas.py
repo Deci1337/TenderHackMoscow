@@ -11,6 +11,8 @@ class SearchRequest(BaseModel):
     session_id: str | None = None
     limit: int = Field(20, ge=1, le=100)
     offset: int = Field(0, ge=0)
+    sort_by: str = Field("relevance", pattern="^(relevance|popularity|name)$")
+    category: str | None = None
 
 
 class RankingExplanation(BaseModel):
@@ -74,3 +76,21 @@ class UserProfileResponse(BaseModel):
     industry: str | None = None
     top_categories: list[str] = []
     total_contracts: int = 0
+
+
+class CategoryFacet(BaseModel):
+    name: str
+    count: int
+
+
+class FacetsResponse(BaseModel):
+    categories: list[CategoryFacet]
+
+
+class PopularQuery(BaseModel):
+    query: str
+    count: int
+
+
+class PopularQueriesResponse(BaseModel):
+    queries: list[PopularQuery]

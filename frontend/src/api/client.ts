@@ -45,11 +45,41 @@ export interface SuggestResponse {
   suggestions: string[];
 }
 
+export interface CategoryFacet {
+  name: string;
+  count: number;
+}
+
+export interface FacetsResponse {
+  categories: CategoryFacet[];
+}
+
+export interface PopularQuery {
+  query: string;
+  count: number;
+}
+
+export interface PopularQueriesResponse {
+  queries: PopularQuery[];
+}
+
 export const api = {
-  search(query: string, userInn: string, sessionId: string, limit = 20, offset = 0) {
+  search(
+    query: string,
+    userInn: string,
+    sessionId: string,
+    limit = 20,
+    offset = 0,
+    sortBy = "relevance",
+    category?: string,
+  ) {
     return request<SearchResponse>("/search", {
       method: "POST",
-      body: JSON.stringify({ query, user_inn: userInn, session_id: sessionId, limit, offset }),
+      body: JSON.stringify({
+        query, user_inn: userInn, session_id: sessionId,
+        limit, offset, sort_by: sortBy,
+        ...(category ? { category } : {}),
+      }),
     });
   },
 
@@ -65,6 +95,14 @@ export const api = {
 
   suggest(q: string) {
     return request<SuggestResponse>(`/search/suggest?q=${encodeURIComponent(q)}`);
+  },
+
+  facets() {
+    return request<FacetsResponse>("/search/facets");
+  },
+
+  popularQueries() {
+    return request<PopularQueriesResponse>("/search/popular");
   },
 
   onboard(inn: string, name?: string, region?: string, industry?: string) {

@@ -1,6 +1,7 @@
 import { useCallback, useState } from "react";
 import { api } from "./api/client";
 import DemoSwitcher from "./components/DemoSwitcher";
+import EmptyState from "./components/EmptyState";
 import Header from "./components/Header";
 import OnboardingModal from "./components/OnboardingModal";
 import Pagination from "./components/Pagination";
@@ -8,9 +9,11 @@ import ProfilePanel from "./components/ProfilePanel";
 import RankingChangeNotice from "./components/RankingChangeNotice";
 import SearchBar from "./components/SearchBar";
 import STECard from "./components/STECard";
+import STECardSkeleton from "./components/STECardSkeleton";
+import Toast from "./components/Toast";
 import { useEvents } from "./hooks/useEvents";
 import { useSearch } from "./hooks/useSearch";
-import { PackageSearch } from "lucide-react";
+import { useToast } from "./hooks/useToast";
 
 const PAGE_SIZE = 20;
 
@@ -32,14 +35,11 @@ export default function App() {
 
   const { response, loading, search } = useSearch(user?.inn || "", sessionId);
   const { trackClick, trackBounce, track } = useEvents(user?.inn || "", sessionId);
+  const { toasts, addToast, removeToast } = useToast();
 
   const handleOnboard = useCallback(
     async (inn: string, name: string, industry: string) => {
-      try {
-        await api.onboard(inn, name, undefined, industry);
-      } catch {
-        // API may not be running during local development
-      }
+      try { await api.onboard(inn, name, undefined, industry); } catch { /* offline dev */ }
       setUser({ inn, name, industry });
     },
     []
@@ -70,8 +70,11 @@ export default function App() {
       } else {
         track(steId, action, lastQuery);
       }
+      if (action === "compare") addToast("Добавлено к сравнению", "success");
+      if (action === "hide") addToast("Товар скрыт — выдача обновится при следующем поиске", "warning");
+      if (action === "like") addToast("Добавлено в избранное", "success");
     },
-    [track, trackClick, trackBounce, lastQuery]
+    [track, trackClick, trackBounce, lastQuery, addToast]
   );
 
   if (!user) {
@@ -98,12 +101,10 @@ export default function App() {
         />
 
         <div className="mt-8 flex gap-6 items-start">
-          {/* Sidebar */}
           <aside className="hidden lg:block w-64 shrink-0 space-y-4">
             <ProfilePanel inn={user.inn} />
           </aside>
 
-          {/* Results */}
           <div className="flex-1 min-w-0">
             {response?.did_you_mean && (
               <div className="mb-4">
@@ -111,7 +112,14 @@ export default function App() {
               </div>
             )}
 
-            {response && (
+            {/* Loading skeletons */}
+            {loading && (
+              <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
+                {Array.from({ length: 6 }).map((_, i) => <STECardSkeleton key={i} />)}
+              </div>
+            )}
+
+            {!loading && response && (
               <>
                 <p className="text-sm text-portal-text-secondary mb-4">
                   Найдено:{" "}
@@ -139,18 +147,13 @@ export default function App() {
                     />
                   </>
                 ) : (
-                  <div className="text-center py-16 text-portal-text-secondary">
-                    <PackageSearch size={48} className="mx-auto mb-4 opacity-40" />
-                    <p className="text-lg">Ничего не найдено</p>
-                    <p className="text-sm mt-1">Попробуйте изменить запрос</p>
-                  </div>
+                  <EmptyState query={lastQuery} onQueryClick={(q) => handleSearch(q, 0)} />
                 )}
               </>
             )}
 
             {!response && !loading && (
               <div className="text-center py-20 text-portal-text-secondary">
-                <PackageSearch size={64} className="mx-auto mb-4 opacity-20" />
                 <p className="text-lg">Начните вводить название товара</p>
                 <p className="text-sm mt-1">
                   Система учтёт ваш профиль ({user.industry || "не указан"}) и историю закупок
@@ -162,6 +165,7 @@ export default function App() {
       </main>
 
       <DemoSwitcher currentInn={user.inn} onSwitch={handleOnboard} />
+      <Toast toasts={toasts} onRemove={removeToast} />
     </div>
   );
 }
