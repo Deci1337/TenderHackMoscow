@@ -12,7 +12,20 @@ from dataclasses import dataclass, field
 from sqlalchemy import func, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.models import Contract, Event
+from app.models import Contract, Event, UserProfile
+
+# Map declared industry -> STE categories relevant for cold-start users
+INDUSTRY_CATEGORIES: dict[str, list[str]] = {
+    "Образование":      ["Образование", "Канцелярские товары"],
+    "Здравоохранение":  ["Медицинские товары", "Хозяйственные товары"],
+    "Строительство":    ["Стройматериалы", "Электротехника"],
+    "IT и связь":       ["IT-оборудование"],
+    "ЖКХ":              ["ЖКХ", "Электротехника"],
+    "Промышленность":   ["Стройматериалы", "IT-оборудование"],
+    "Культура и спорт": ["Образование", "Канцелярские товары"],
+    "Транспорт":        ["IT-оборудование", "Электротехника"],
+    "Другое":           [],
+}
 
 
 @dataclass
@@ -39,8 +52,19 @@ async def get_user_boosts(
     """
     scores: dict[int, ScoredSTE] = {sid: ScoredSTE(ste_id=sid) for sid in candidate_ids}
 
-    await _apply_contract_history(db, user_inn, candidate_ids, scores)
-    await _apply_category_affinity(db, user_inn, candidate_ids, scores)
+    # Check if user has any contract history at all
+    contract_count: int = (await db.execute(
+        select(func.count()).where(Contract.customer_inn == user_inn)
+    )).scalar() or 0
+
+    if contract_count > 0:
+        # Returning user: use actual purchase history for personalization
+        await _apply_contract_history(db, user_inn, candidate_ids, scores)
+        await _apply_category_affinity(db, user_inn, candidate_ids, scores)
+    else:
+        # Cold-start user: use declared industry instead of non-existent history
+        await _apply_industry_affinity(db, user_inn, candidate_ids, scores)
+
     if session_id:
         await _apply_session_events(db, user_inn, session_id, candidate_ids, scores)
 
@@ -165,4 +189,41 @@ async def _apply_session_events(
                 "reason": "Снижено: вы отклонили похожий товар",
                 "factor": "negative",
                 "weight": -w,
+            })
+
+
+async def _apply_industry_affinity(
+    db: AsyncSession,
+    user_inn: str,
+    candidate_ids: list[int],
+    scores: dict[int, ScoredSTE],
+) -> None:
+    """
+    Cold-start personalization: boost items that match the user's declared industry.
+    Only called when user has zero contract history.
+    No "Вы уже закупали" badge is ever shown here — only "Популярно для [industry]".
+    """
+    if not candidate_ids:
+        return
+
+    profile = await db.get(UserProfile, user_inn)
+    if not profile or not profile.industry:
+        return
+
+    relevant_cats = INDUSTRY_CATEGORIES.get(profile.industry, [])
+    if not relevant_cats:
+        return
+
+    rows = await db.execute(text("""
+        SELECT id, category FROM ste
+        WHERE id = ANY(:ids) AND category = ANY(:cats)
+    """), {"ids": candidate_ids, "cats": relevant_cats})
+
+    for ste_id, category in rows.all():
+        if ste_id in scores:
+            scores[ste_id].boost += 0.25
+            scores[ste_id].explanations.append({
+                "reason": f"Популярно для «{profile.industry}»",
+                "factor": "category",
+                "weight": 0.25,
             })

@@ -171,6 +171,9 @@ function Main({ user, onLogout }: { user: User; onLogout: () => void }) {
 
   function selectCategory(cat: string | null) {
     setCategory(cat);
+    setOffset(0);
+    // Always clear old results immediately so stale data doesn't linger
+    setResponse(null);
     if (query) doSearch(query, 0, sortBy, cat);
   }
 
@@ -450,8 +453,17 @@ function EmptyBox({ icon, title, subtitle, onPick }: { icon: React.ReactNode; ti
 }
 
 function DetailModal({ item, onClose, trackAction }: { item: STEResult; onClose: () => void; trackAction: (id: number, a: string) => void }) {
+  const openedAt = React.useRef(Date.now());
+
+  function handleClose() {
+    const elapsed = Date.now() - openedAt.current;
+    // Closed in under 4s without any positive action = bounce signal
+    if (elapsed < 4000) trackAction(item.id, "bounce");
+    onClose();
+  }
+
   return (
-    <div onClick={e => { if (e.target === e.currentTarget) onClose(); }}
+    <div onClick={e => { if (e.target === e.currentTarget) handleClose(); }}
       style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,.4)", display: "flex", alignItems: "center", justifyContent: "center", padding: 16, zIndex: 999 }}>
       <div style={{ background: "#fff", borderRadius: 8, boxShadow: "0 8px 40px rgba(0,0,0,.2)", width: "100%", maxWidth: 520, maxHeight: "90vh", overflow: "auto" }}>
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", padding: 20, borderBottom: "1px solid #D4DBE6" }}>
@@ -459,7 +471,7 @@ function DetailModal({ item, onClose, trackAction }: { item: STEResult; onClose:
             <h2 style={{ fontSize: 16, fontWeight: 700, color: "#1A1A1A", margin: 0 }}>{item.name}</h2>
             {item.category && <p style={{ fontSize: 13, color: "#8C8C8C", margin: "4px 0 0" }}>{item.category}</p>}
           </div>
-          <button onClick={onClose} style={{ background: "none", border: "none", cursor: "pointer", color: "#8C8C8C", padding: 4 }}><X size={18} /></button>
+          <button onClick={handleClose} style={{ background: "none", border: "none", cursor: "pointer", color: "#8C8C8C", padding: 4 }}><X size={18} /></button>
         </div>
         <div style={{ padding: 20 }}>
           <div style={{ display: "flex", gap: 8, marginBottom: 16 }}>
@@ -502,7 +514,7 @@ function DetailModal({ item, onClose, trackAction }: { item: STEResult; onClose:
           <button onClick={() => { trackAction(item.id, "compare"); }}
             style={{ padding: "8px 16px", border: "1px solid #D4DBE6", borderRadius: 4, background: "#fff", cursor: "pointer", fontSize: 13, display: "flex", alignItems: "center", gap: 4 }}
           ><GitCompare size={14} /> Сравнить</button>
-          <button onClick={() => { trackAction(item.id, "hide"); onClose(); }}
+          <button onClick={() => { trackAction(item.id, "hide"); handleClose(); }}
             style={{ marginLeft: "auto", padding: "8px 16px", border: "1px solid rgba(219,43,33,.3)", borderRadius: 4, background: "#fff", cursor: "pointer", fontSize: 13, color: "#DB2B21", display: "flex", alignItems: "center", gap: 4 }}
           ><ThumbsDown size={14} /> Скрыть</button>
         </div>
