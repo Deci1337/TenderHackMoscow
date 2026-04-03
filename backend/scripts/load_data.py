@@ -1,17 +1,23 @@
 """
-Data loader script: parses STE and Contracts datasets, loads into PostgreSQL.
-Run inside the backend container: python -m scripts.load_data
+Data loader: parses STE and Contracts datasets, loads into PostgreSQL,
+then builds Dev2 ML search indexes (BM25 + embeddings + user profiles).
+
+Usage:
+  python -m scripts.load_data
+  python -m scripts.load_data --ste-file data/ste.csv --contracts-file data/contracts.csv
 """
+import argparse
 import asyncio
 import logging
 import os
 import sys
+from pathlib import Path
 
 import pandas as pd
 from sqlalchemy import text
-from sqlalchemy.ext.asyncio import create_async_engine, async_sessionmaker, AsyncSession
+from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
-sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from app.config import settings
 from app.models import STE, Contract, UserProfile
@@ -20,43 +26,31 @@ logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(me
 log = logging.getLogger(__name__)
 
 
-async def load_ste(session: AsyncSession, filepath: str):
-    """Load STE (product catalog) data from Excel/CSV."""
-    log.info("Loading STE data from %s", filepath)
-    if filepath.endswith(".csv"):
-        df = pd.read_csv(filepath)
-    else:
-        df = pd.read_excel(filepath)
+# ---------------------------------------------------------------------------
+# PostgreSQL loading (Dev1)
+# ---------------------------------------------------------------------------
 
-    log.info("STE dataset: %d rows, columns: %s", len(df), list(df.columns))
-    log.info("Sample:\n%s", df.head(3).to_string())
+async def load_ste(session: AsyncSession, filepath: str):
+    """Load STE catalog into PostgreSQL."""
+    log.info("Loading STE from %s", filepath)
+    df = pd.read_excel(filepath) if filepath.endswith((".xlsx", ".xls")) else pd.read_csv(filepath)
+    log.info("STE: %d rows, cols: %s", len(df), list(df.columns))
 
     col_map = _detect_columns(df, {
         "id": ["id", "ste_id", "identifier", "ste"],
-        "name": ["name", "naimenovanie", "ste_name"],
-        "category": ["category", "kategoriya", "kategoria"],
-        "attributes": ["attributes", "atributy", "attrs"],
+        "name": ["name", "naimenovanie", "ste_name", "название"],
+        "category": ["category", "kategoriya", "kategoria", "категория", "кпгз"],
+        "attributes": ["attributes", "atributy", "attrs", "характеристики"],
     })
-    log.info("Detected STE column mapping: %s", col_map)
+    log.info("Column mapping: %s", col_map)
 
     count = 0
     for _, row in df.iterrows():
-        attrs = {}
-        if col_map.get("attributes") and pd.notna(row.get(col_map["attributes"])):
-            raw = row[col_map["attributes"]]
-            if isinstance(raw, str):
-                try:
-                    import json
-                    attrs = json.loads(raw)
-                except (json.JSONDecodeError, ValueError):
-                    attrs = {"raw": raw}
-            else:
-                attrs = {"raw": str(raw)}
-
+        attrs = _parse_attrs(row, col_map)
         ste = STE(
             id=int(row[col_map["id"]]),
             name=str(row[col_map["name"]]),
-            category=str(row[col_map["category"]]) if col_map.get("category") and pd.notna(row.get(col_map["category"])) else None,
+            category=_get_val(row, col_map, "category"),
             attributes=attrs,
         )
         session.add(ste)
@@ -66,34 +60,29 @@ async def load_ste(session: AsyncSession, filepath: str):
             log.info("  STE: flushed %d rows", count)
 
     await session.commit()
-    log.info("STE: loaded %d rows total", count)
+    log.info("STE: loaded %d rows", count)
 
 
 async def load_contracts(session: AsyncSession, filepath: str):
-    """Load Contracts data from Excel/CSV."""
-    log.info("Loading Contracts data from %s", filepath)
-    if filepath.endswith(".csv"):
-        df = pd.read_csv(filepath)
-    else:
-        df = pd.read_excel(filepath)
-
-    log.info("Contracts dataset: %d rows, columns: %s", len(df), list(df.columns))
-    log.info("Sample:\n%s", df.head(3).to_string())
+    """Load Contracts into PostgreSQL."""
+    log.info("Loading Contracts from %s", filepath)
+    df = pd.read_excel(filepath) if filepath.endswith((".xlsx", ".xls")) else pd.read_csv(filepath)
+    log.info("Contracts: %d rows, cols: %s", len(df), list(df.columns))
 
     col_map = _detect_columns(df, {
-        "purchase_name": ["purchase_name", "naimenovanie_zakupki", "naimenovanie"],
+        "purchase_name": ["purchase_name", "naimenovanie_zakupki", "naimenovanie", "наименование"],
         "contract_id": ["contract_id", "identifikator_kontrakta", "id_kontrakta"],
-        "ste_id": ["ste_id", "identifikator_ste", "id_ste"],
-        "contract_date": ["contract_date", "data_zaklyucheniya", "data"],
-        "cost": ["cost", "stoimost", "stoimost_kontrakta"],
-        "customer_inn": ["customer_inn", "inn_zakazchika"],
+        "ste_id": ["ste_id", "identifikator_ste", "id_ste", "кпгз"],
+        "contract_date": ["contract_date", "data_zaklyucheniya", "data", "дата"],
+        "cost": ["cost", "stoimost", "stoimost_kontrakta", "стоимость"],
+        "customer_inn": ["customer_inn", "inn_zakazchika", "инн заказчика", "инн"],
         "customer_name": ["customer_name", "naimenovanie_zakazchika"],
         "customer_region": ["customer_region", "region_zakazchika"],
         "supplier_inn": ["supplier_inn", "inn_postavshchika"],
         "supplier_name": ["supplier_name", "naimenovanie_postavshchika"],
         "supplier_region": ["supplier_region", "region_postavshchika"],
     })
-    log.info("Detected Contract column mapping: %s", col_map)
+    log.info("Column mapping: %s", col_map)
 
     count = 0
     for _, row in df.iterrows():
@@ -117,37 +106,141 @@ async def load_contracts(session: AsyncSession, filepath: str):
             log.info("  Contracts: flushed %d rows", count)
 
     await session.commit()
-    log.info("Contracts: loaded %d rows total", count)
+    log.info("Contracts: loaded %d rows", count)
 
 
 async def build_user_profiles(session: AsyncSession):
-    """Build initial user profiles from contract history."""
     log.info("Building user profiles from contract history")
     result = await session.execute(text("""
         INSERT INTO user_profiles (inn, name, region, profile_data, created_at)
         SELECT DISTINCT ON (customer_inn)
             customer_inn, customer_name, customer_region, '{}'::jsonb, now()
-        FROM contracts
-        WHERE customer_inn IS NOT NULL
+        FROM contracts WHERE customer_inn IS NOT NULL
         ON CONFLICT (inn) DO NOTHING
     """))
     await session.commit()
-    log.info("User profiles built: %d new profiles", result.rowcount)
+    log.info("User profiles: %d created", result.rowcount)
 
 
 async def update_tsvectors(session: AsyncSession):
-    """Populate tsvector column for full-text search."""
-    log.info("Updating tsvector column for STE")
+    log.info("Updating tsvector column")
     await session.execute(text("""
-        UPDATE ste SET name_tsv = to_tsvector('russian', name)
-        WHERE name_tsv IS NULL
+        UPDATE ste SET name_tsv = to_tsvector('russian', name) WHERE name_tsv IS NULL
     """))
     await session.commit()
-    log.info("tsvector update complete")
+    log.info("tsvector update done")
 
 
-def _detect_columns(df: pd.DataFrame, expected: dict[str, list[str]]) -> dict[str, str]:
-    """Auto-detect column names by matching known aliases (case-insensitive)."""
+# ---------------------------------------------------------------------------
+# Dev2 ML indexes (embeddings, BM25, in-memory profiles)
+# ---------------------------------------------------------------------------
+
+def build_ml_indexes(ste_file: str, contracts_file: str | None = None):
+    """Build Dev2 in-memory ML indexes after PostgreSQL data is loaded."""
+    try:
+        import numpy as np
+        from app.services.nlp_service import get_nlp_service
+        from app.services.embedding_service import get_embedding_service
+        from app.services.search_service import get_search_service, STEDocument
+        from app.services.personalization_service import get_personalization_service
+
+        log.info("Building ML indexes...")
+        nlp = get_nlp_service()
+        embedder = get_embedding_service()
+        searcher = get_search_service()
+        searcher.initialize(nlp, embedder)
+
+        df = pd.read_excel(ste_file) if ste_file.endswith((".xlsx", ".xls")) else pd.read_csv(ste_file)
+        col_map = _detect_columns(df, {
+            "id": ["id", "ste_id", "identifier", "ste"],
+            "name": ["name", "naimenovanie", "название"],
+            "category": ["category", "kategoria", "категория"],
+            "attributes": ["attributes", "atributy", "характеристики"],
+        })
+
+        documents, texts, ids = [], [], []
+        for _, row in df.iterrows():
+            sid = int(row[col_map["id"]]) if col_map.get("id") else 0
+            name = str(row.get(col_map.get("name", ""), "") or "")
+            if not name or name == "nan":
+                continue
+            cat = _get_val(row, col_map, "category")
+            attrs = str(_parse_attrs(row, col_map))
+            documents.append(STEDocument(
+                ste_id=sid, name=name, category=cat, attributes=attrs,
+                name_normalized=nlp.normalize_text(name),
+                lemmas=nlp.lemmatize(name),
+            ))
+            texts.append(f"{name} {attrs}" if attrs != "{}" else name)
+            ids.append(sid)
+
+        log.info("Generating embeddings for %d docs...", len(documents))
+        batch_size = 256
+        all_embs = []
+        for i in range(0, len(texts), batch_size):
+            all_embs.append(embedder.embed(texts[i:i+batch_size]))
+            log.info("  %d/%d", min(i+batch_size, len(texts)), len(texts))
+
+        if all_embs:
+            embs = np.vstack(all_embs)
+            for i, doc in enumerate(documents):
+                if i < len(embs):
+                    doc.embedding = embs[i]
+
+        searcher.index_documents(documents)
+        log.info("ML indexes built for %d documents", len(documents))
+
+        if contracts_file:
+            _build_ml_profiles(contracts_file, df, col_map, dict(zip(ids, np.vstack(all_embs) if all_embs else [])))
+
+    except Exception as e:
+        log.warning("ML index build failed (search will use SQL fallback): %s", e)
+
+
+def _build_ml_profiles(contracts_file, ste_df, col_map, ste_embeddings):
+    from collections import defaultdict
+    from app.services.personalization_service import get_personalization_service
+    import numpy as np
+
+    df = pd.read_excel(contracts_file) if contracts_file.endswith((".xlsx", ".xls")) else pd.read_csv(contracts_file)
+    inn_col = next((c for c in df.columns if "inn" in c.lower() or "инн" in c.lower()), None)
+    ste_col = next((c for c in df.columns if "ste" in c.lower() or "кпгз" in c.lower()), None)
+    if not inn_col:
+        return
+
+    ste_cats = {}
+    if col_map.get("category"):
+        for _, row in ste_df.iterrows():
+            sid = int(row[col_map.get("id", "id")]) if col_map.get("id") else 0
+            cat = _get_val(row, col_map, "category")
+            if cat:
+                ste_cats[sid] = cat
+
+    user_data: dict = defaultdict(lambda: {"ste_ids": [], "categories": []})
+    for _, row in df.iterrows():
+        inn = str(row[inn_col]).strip()
+        if not inn or inn == "nan":
+            continue
+        sid = _get_int(row, {ste_col: ste_col} if ste_col else {}, ste_col) if ste_col else None
+        if sid:
+            user_data[inn]["ste_ids"].append(sid)
+            if sid in ste_cats:
+                user_data[inn]["categories"].append(ste_cats[sid])
+
+    personalizer = get_personalization_service()
+    for inn, data in user_data.items():
+        personalizer.build_profile_from_contracts(
+            customer_inn=inn, categories=data["categories"],
+            ste_embeddings=ste_embeddings, purchased_ste_ids=data["ste_ids"],
+        )
+    log.info("ML profiles built for %d users", len(user_data))
+
+
+# ---------------------------------------------------------------------------
+# Helpers
+# ---------------------------------------------------------------------------
+
+def _detect_columns(df, expected):
     cols_lower = {c.lower().strip(): c for c in df.columns}
     mapping = {}
     for field, aliases in expected.items():
@@ -157,17 +250,30 @@ def _detect_columns(df: pd.DataFrame, expected: dict[str, list[str]]) -> dict[st
                 break
         if field not in mapping:
             for col_lower, col_orig in cols_lower.items():
-                if alias.lower() in col_lower:
-                    mapping[field] = col_orig
-                    break
+                for alias in aliases:
+                    if alias.lower() in col_lower:
+                        mapping[field] = col_orig
+                        break
     return mapping
+
+
+def _parse_attrs(row, col_map):
+    col = col_map.get("attributes")
+    if col and pd.notna(row.get(col)):
+        raw = row[col]
+        if isinstance(raw, str):
+            try:
+                import json
+                return json.loads(raw)
+            except Exception:
+                return {"raw": raw}
+        return {"raw": str(raw)}
+    return {}
 
 
 def _get_val(row, col_map, key):
     col = col_map.get(key)
-    if col and pd.notna(row.get(col)):
-        return str(row[col])
-    return None
+    return str(row[col]) if col and pd.notna(row.get(col)) else None
 
 
 def _get_int(row, col_map, key):
@@ -175,7 +281,7 @@ def _get_int(row, col_map, key):
     if col and pd.notna(row.get(col)):
         try:
             return int(float(row[col]))
-        except (ValueError, TypeError):
+        except Exception:
             return None
     return None
 
@@ -185,44 +291,63 @@ def _get_float(row, col_map, key):
     if col and pd.notna(row.get(col)):
         try:
             return float(row[col])
-        except (ValueError, TypeError):
+        except Exception:
             return None
     return None
 
 
-async def main():
+# ---------------------------------------------------------------------------
+# Entry point
+# ---------------------------------------------------------------------------
+
+async def main_async(ste_file: str, contracts_file: str | None):
     engine = create_async_engine(settings.DATABASE_URL, echo=False)
     session_factory = async_sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
 
-    data_dir = settings.DATA_DIR
-    log.info("Data directory: %s", data_dir)
-    log.info("Files found: %s", os.listdir(data_dir) if os.path.exists(data_dir) else "DIRECTORY NOT FOUND")
-
-    ste_file = None
-    contracts_file = None
-    for f in os.listdir(data_dir) if os.path.exists(data_dir) else []:
-        fl = f.lower()
-        if "ste" in fl or "product" in fl or "tovar" in fl:
-            ste_file = os.path.join(data_dir, f)
-        elif "contract" in fl or "kontrakt" in fl:
-            contracts_file = os.path.join(data_dir, f)
-
     async with session_factory() as session:
-        if ste_file:
-            await load_ste(session, ste_file)
-            await update_tsvectors(session)
-        else:
-            log.warning("STE file not found in %s", data_dir)
-
+        await load_ste(session, ste_file)
+        await update_tsvectors(session)
         if contracts_file:
             await load_contracts(session, contracts_file)
             await build_user_profiles(session)
-        else:
-            log.warning("Contracts file not found in %s", data_dir)
 
     await engine.dispose()
-    log.info("Data loading complete")
+    build_ml_indexes(ste_file, contracts_file)
+    log.info("All done")
+
+
+def _auto_detect_files(data_dir: str):
+    files = os.listdir(data_dir) if os.path.exists(data_dir) else []
+    ste_file = next(
+        (os.path.join(data_dir, f) for f in files if any(k in f.lower() for k in ["ste", "product", "tovar", "catalog"])),
+        None,
+    )
+    contracts_file = next(
+        (os.path.join(data_dir, f) for f in files if any(k in f.lower() for k in ["contract", "kontrakt"])),
+        None,
+    )
+    return ste_file, contracts_file
+
+
+def main():
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--ste-file", default=None)
+    parser.add_argument("--contracts-file", default=None)
+    args = parser.parse_args()
+
+    ste_file = args.ste_file
+    contracts_file = args.contracts_file
+
+    if not ste_file:
+        ste_file, contracts_file = _auto_detect_files(settings.DATA_DIR)
+        log.info("Auto-detected: ste=%s, contracts=%s", ste_file, contracts_file)
+
+    if not ste_file:
+        log.error("No STE file found in %s. Use --ste-file.", settings.DATA_DIR)
+        sys.exit(1)
+
+    asyncio.run(main_async(ste_file, contracts_file))
 
 
 if __name__ == "__main__":
-    asyncio.run(main())
+    main()

@@ -1,15 +1,39 @@
+# Web framework
 fastapi>=0.115.0
 uvicorn[standard]>=0.30.0
 pydantic>=2.7.0
 pydantic-settings>=2.3.0
+python-multipart>=0.0.6
+
+# Database
 sqlalchemy[asyncio]>=2.0.30
 asyncpg>=0.29.0
 alembic>=1.13.0
 pgvector>=0.3.0
 redis>=5.0.0
 python-dotenv>=1.0.0
-pandas>=2.2.0
-openpyxl>=3.1.0
-# NLP (used by search, not ML models)
+
+# NLP & Morphology
 pymorphy2>=0.9.1
 pymorphy2-dicts-ru>=2.4.417127.4579844
+symspellpy>=6.7.7
+nltk>=3.8.1
+
+# ML & Ranking
+scikit-learn>=1.4.0
+numpy>=1.26.0
+scipy>=1.12.0
+catboost>=1.2.2
+shap>=0.44.0
+
+# Embeddings (rubert-tiny2 — lightweight, CPU-friendly)
+sentence-transformers>=2.3.0
+torch>=2.1.0
+
+# Data processing
+pandas>=2.2.0
+openpyxl>=3.1.0
+
+# Logging & utils
+loguru>=0.7.2
+httpx>=0.26.0

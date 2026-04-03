@@ -35,10 +35,12 @@ services:
     volumes:
       - ./backend:/app
       - ./data:/data
+      - model_cache:/root/.cache
     environment:
       DATABASE_URL: postgresql+asyncpg://tenderhack:tenderhack_secret@db:5432/tenderhack
       REDIS_URL: redis://redis:6379/0
       DATA_DIR: /data
+      EMBEDDING_MODEL: cointegrated/rubert-tiny2
     depends_on:
       db:
         condition: service_healthy
@@ -57,3 +59,4 @@ services:
 
 volumes:
   pgdata:
+  model_cache:
