@@ -33,8 +33,7 @@ export default function OnboardingModal({ onComplete }: Props) {
   };
 
   return (
-    <div className="min-h-screen bg-portal-bg flex items-center justify-center p-4">
-      {/* Background decorative strip */}
+    <div className="min-h-screen bg-portal-blue-pale flex items-center justify-center p-4">
       <div className="fixed top-0 inset-x-0 h-1.5 bg-portal-blue" />
 
       <div className="bg-white rounded-portal shadow-modal max-w-lg w-full overflow-hidden">
@@ -96,7 +95,7 @@ export default function OnboardingModal({ onComplete }: Props) {
                     className={`flex flex-col items-center gap-1 px-2 py-3 rounded-portal text-xs border transition-all ${
                       industry === ind.label
                         ? "bg-portal-blue-pale border-portal-blue text-portal-blue font-semibold"
-                        : "bg-white border-portal-border text-portal-text-secondary hover:border-portal-blue hover:text-portal-text"
+                        : "bg-white border-portal-border text-portal-gray-text hover:border-portal-blue hover:text-portal-black"
                     }`}
                   >
                     <span className="text-lg leading-none">{ind.icon}</span>
@@ -109,9 +108,7 @@ export default function OnboardingModal({ onComplete }: Props) {
             <button
               type="submit"
               disabled={!inn || !industry}
-              className="w-full bg-portal-blue hover:bg-portal-blue-hover disabled:opacity-40
-                         disabled:cursor-not-allowed text-white font-semibold py-3 rounded-portal
-                         transition-colors text-sm shadow-sm"
+              className="btn-primary w-full py-3 text-sm"
             >
               Начать поиск
             </button>

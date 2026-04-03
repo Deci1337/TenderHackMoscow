@@ -27,8 +27,8 @@ export default function SearchBar({ onSearch, loading, correctedQuery }: Props) 
   const [history, setHistory] = useState<string[]>([]);
   const [showSuggestions, setShowSuggestions] = useState(false);
   const [showHistory, setShowHistory] = useState(false);
-  const debounceRef = useRef<ReturnType<typeof setTimeout>>();
-  const suggestRef = useRef<ReturnType<typeof setTimeout>>();
+  const debounceRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
+  const suggestRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
   const wrapperRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -120,10 +120,10 @@ export default function SearchBar({ onSearch, loading, correctedQuery }: Props) 
             onChange={(e) => setValue(e.target.value)}
             onFocus={handleFocus}
             placeholder="Введите название товара или СТЕ..."
-            className="w-full pl-12 pr-12 py-4 rounded-xl border-2 border-portal-border bg-white
-                       text-base focus:border-portal-blue focus:outline-none focus:ring-2
-                       focus:ring-portal-blue/20 shadow-sm transition-all
-                       placeholder:text-portal-text-secondary/60"
+            className="w-full pl-12 pr-12 py-4 rounded-portal border-2 border-portal-border bg-white
+                       text-base text-portal-black focus:border-portal-blue focus:outline-none
+                       focus:ring-2 focus:ring-portal-blue/20 shadow-sm transition-all
+                       placeholder:text-portal-gray-text"
           />
           {loading && (
             <Loader2
@@ -143,7 +143,7 @@ export default function SearchBar({ onSearch, loading, correctedQuery }: Props) 
         </form>
 
         {dropdownItems.length > 0 && (
-          <ul className="absolute z-20 top-full mt-1 w-full bg-white rounded-xl border border-portal-border shadow-lg overflow-hidden">
+          <ul className="absolute z-20 top-full mt-1 w-full bg-white rounded-portal border border-portal-border shadow-modal overflow-hidden">
             {showHistory && (
               <li className="px-5 py-2 text-xs font-medium text-portal-text-secondary uppercase tracking-wide border-b border-portal-border">
                 Недавние запросы
@@ -170,7 +170,7 @@ export default function SearchBar({ onSearch, loading, correctedQuery }: Props) 
 
       {correctedQuery && correctedQuery !== value && (
         <div className="px-4 py-2 bg-amber-50 border border-amber-200 rounded-lg text-sm flex items-center gap-2">
-          <span className="text-amber-700">
+          <span className="text-portal-orange">
             Показаны результаты по запросу <strong>"{correctedQuery}"</strong>
           </span>
           <button

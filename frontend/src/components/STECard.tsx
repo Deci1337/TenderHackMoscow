@@ -11,11 +11,11 @@ interface Props {
 }
 
 const BADGE_STYLE: Record<string, string> = {
-  history:    "bg-portal-success-bg text-portal-success border-portal-success/20",
-  category:   "bg-portal-info-bg text-portal-info border-portal-info/20",
+  history:    "bg-portal-success-bg text-portal-green border-portal-green/20",
+  category:   "bg-portal-info-bg text-portal-sea-dark border-portal-sea-dark/20",
   popularity: "bg-purple-50 text-purple-700 border-purple-200",
-  session:    "bg-portal-warning-bg text-portal-warning border-portal-warning/20",
-  default:    "bg-portal-bg text-portal-text-secondary border-portal-border",
+  session:    "bg-portal-warning-bg text-portal-orange border-portal-orange/20",
+  default:    "bg-portal-blue-pale text-portal-gray-text border-portal-border",
 };
 
 export default function STECard({ item, query, onAction, inCompare = false }: Props) {
@@ -23,20 +23,20 @@ export default function STECard({ item, query, onAction, inCompare = false }: Pr
 
   return (
     <>
-      <div className="bg-white rounded-portal border border-portal-border shadow-card hover:shadow-card-hover transition-shadow flex flex-col">
+      <div className="card hover:shadow-card-hover transition-shadow flex flex-col">
         {/* Card body */}
         <div className="p-4 flex-1 flex flex-col gap-3">
           {/* Title + ID */}
           <div className="flex items-start gap-2">
             <div className="flex-1 min-w-0">
-              <h3 className="font-semibold text-portal-text text-sm leading-snug line-clamp-2">
-                {item.name}
-              </h3>
-              {item.category && (
-                <p className="text-xs text-portal-text-secondary mt-0.5 truncate">{item.category}</p>
-              )}
-            </div>
-            <span className="shrink-0 text-2xs font-mono bg-portal-bg border border-portal-border rounded px-1.5 py-0.5 text-portal-text-muted">
+            <h3 className="font-semibold text-portal-black text-sm leading-snug line-clamp-2">
+              {item.name}
+            </h3>
+            {item.category && (
+              <p className="text-xs text-portal-gray-text mt-0.5 truncate">{item.category}</p>
+            )}
+          </div>
+          <span className="shrink-0 text-2xs font-mono bg-portal-blue-pale border border-portal-border rounded px-1.5 py-0.5 text-portal-gray">
               {item.id}
             </span>
           </div>
@@ -79,7 +79,7 @@ export default function STECard({ item, query, onAction, inCompare = false }: Pr
         <div className="px-4 py-2.5 border-t border-portal-border-light flex items-center gap-1">
           <button
             onClick={() => setShowModal(true)}
-            className="flex items-center gap-1 text-xs text-portal-blue hover:bg-portal-blue-pale rounded px-2 py-1.5 transition-colors font-medium"
+            className="flex items-center gap-1 text-xs text-portal-blue hover:bg-portal-blue-pale rounded-portal px-2 py-1.5 transition-colors font-medium"
           >
             Подробнее <ChevronRight size={12} />
           </button>
@@ -99,7 +99,7 @@ export default function STECard({ item, query, onAction, inCompare = false }: Pr
 
           <button
             onClick={() => onAction(item.id, "hide")}
-            className="ml-auto text-portal-text-muted hover:text-portal-error hover:bg-portal-error-bg rounded px-2 py-1.5 transition-colors"
+            className="ml-auto text-portal-gray hover:text-portal-red hover:bg-portal-red/10 rounded-portal px-2 py-1.5 transition-colors"
             title="Не интересует"
           >
             <ThumbsDown size={13} />

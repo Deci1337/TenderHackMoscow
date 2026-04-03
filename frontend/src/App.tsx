@@ -118,7 +118,7 @@ export default function App() {
   }
 
   return (
-    <div className="min-h-screen bg-portal-bg">
+    <div className="min-h-screen bg-portal-blue-pale">
       <Header currentUser={user} onSwitchUser={() => setUser(null)} />
 
       <main className="max-w-7xl mx-auto px-4 py-8">
