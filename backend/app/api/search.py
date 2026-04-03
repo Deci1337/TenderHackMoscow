@@ -39,19 +39,36 @@ async def search_ste(req: SearchRequest, db: AsyncSession = Depends(get_db)):
     except Exception:
         pass
 
-    # --- Stage 1: Query preprocessing ---
-    pq = process_query(req.query)
+    # --- Stage 1: Query preprocessing (typo correction + synonyms + lemmatization) ---
     corrected_query = req.query
     was_corrected = False
+    applied_synonyms: list[str] = []
 
-    # Try Dev2 NLP for richer correction + synonyms
+    # 1a. Typo correction (SymSpell, local dictionary)
+    try:
+        from app.services.typo_corrector import correct_query
+        corrected_query, was_corrected = correct_query(req.query)
+    except Exception:
+        pass
+
+    # 1b. Synonym expansion (procurement domain)
+    search_query = corrected_query
+    try:
+        from app.services.synonyms import expand_query
+        search_query, applied_synonyms = expand_query(corrected_query)
+    except Exception:
+        pass
+
+    # 1c. Morphological analysis (pymorphy3 lemmatization)
+    pq = process_query(search_query)
+
+    # 1d. Try Dev2 NLP for richer processing (if available)
     try:
         from app.services.nlp_service import get_nlp_service
         nlp = get_nlp_service()
         query_data = nlp.process_query(req.query)
-        corrected_query = query_data.get("corrected", req.query)
-        was_corrected = query_data.get("was_corrected", False)
-        log.debug("Dev2 NLP: corrected=%s, synonyms=%s", corrected_query, query_data.get("applied_synonyms"))
+        corrected_query = query_data.get("corrected", corrected_query)
+        was_corrected = was_corrected or query_data.get("was_corrected", False)
     except Exception:
         pass
 
@@ -126,15 +143,7 @@ async def search_ste(req: SearchRequest, db: AsyncSession = Depends(get_db)):
     if req.session_id:
         ranking_change_reason = await get_session_change_reason(req.user_inn, req.session_id)
 
-    count_sql = text("""
-        SELECT count(*) FROM ste
-        WHERE name % :orig
-           OR name_tsv @@ to_tsquery('russian', :tsq)
-           OR name_tsv @@ plainto_tsquery('russian', :lemma)
-    """)
-    total = (await db.execute(count_sql, {
-        "orig": req.query, "tsq": pq.ts_query, "lemma": pq.lemmatized,
-    })).scalar() or 0
+    total = len(candidates)
 
     return SearchResponse(
         query=req.query,
@@ -168,9 +177,10 @@ async def _get_candidates(req, pq, corrected_query: str, db: AsyncSession) -> li
     except Exception as e:
         log.debug("Dev2 ML search unavailable, falling back to SQL: %s", e)
 
-    # SQL fallback
+    # SQL fallback: lower pg_trgm threshold, use ILIKE as extra fallback
     fetch_limit = req.limit * 3
     category_clause = "AND category = :category" if req.category else ""
+    await db.execute(text("SET pg_trgm.similarity_threshold = 0.1"))
     rows = (await db.execute(text(f"""
         SELECT id, name, category, attributes,
                similarity(name, :orig)                               AS trgm_score,
@@ -179,13 +189,15 @@ async def _get_candidates(req, pq, corrected_query: str, db: AsyncSession) -> li
         FROM ste
         WHERE (name % :orig
            OR name_tsv @@ to_tsquery('russian', :tsq)
-           OR name_tsv @@ plainto_tsquery('russian', :lemma))
+           OR name_tsv @@ plainto_tsquery('russian', :lemma)
+           OR name ILIKE :ilike)
            {category_clause}
         ORDER BY trgm_score DESC
         LIMIT :lim
     """), {
         "orig": req.query, "tsq": pq.ts_query,
         "lemma": pq.lemmatized, "lim": fetch_limit,
+        "ilike": f"%{req.query.strip()}%",
         **( {"category": req.category} if req.category else {} ),
     })).mappings().all()
 
@@ -203,21 +215,25 @@ async def _get_candidates(req, pq, corrected_query: str, db: AsyncSession) -> li
     ]
 
 
-@router.get("/suggest", response_model=SuggestResponse)
-async def suggest(q: str, db: AsyncSession = Depends(get_db)):
+@router.get("/suggest")
+async def suggest(q: str = "", db: AsyncSession = Depends(get_db)):
     """Fast autocomplete: up to 8 STE suggestions (pg_trgm, sub-50ms)."""
-    if not q or len(q.strip()) < 2:
-        return SuggestResponse(suggestions=[])
+    try:
+        if not q or len(q.strip()) < 2:
+            return {"suggestions": []}
 
-    pq = process_query(q)
-    rows = (await db.execute(text("""
-        SELECT DISTINCT name FROM ste
-        WHERE name % :q OR name ILIKE :prefix
-        ORDER BY similarity(name, :q) DESC
-        LIMIT 8
-    """), {"q": pq.lemmatized, "prefix": f"{q.strip()}%"})).scalars().all()
+        clean = q.strip()
+        rows = (await db.execute(text("""
+            SELECT DISTINCT name FROM ste
+            WHERE name ILIKE :prefix
+            ORDER BY name
+            LIMIT 8
+        """), {"prefix": f"%{clean}%"})).scalars().all()
 
-    return SuggestResponse(suggestions=list(rows))
+        return {"suggestions": list(rows)}
+    except Exception as e:
+        log.exception("Suggest error")
+        return {"suggestions": []}
 
 
 @router.get("/facets", response_model=FacetsResponse)
