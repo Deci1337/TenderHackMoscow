@@ -72,11 +72,22 @@ async def search_ste(req: SearchRequest, db: AsyncSession = Depends(get_db)):
     try:
         from app.services.personalization_service import get_personalization_service
         from app.services.ranking_service import get_ranking_service
+        from app.services.search_service import SearchResult
         user_ctx = get_personalization_service()._profiles.get(req.user_inn)
         if user_ctx:
             ranker = get_ranking_service()
-            ml_scores = ranker.get_scores(scored, user_ctx)
-            scored = [(sid, ml_scores.get(sid, s) + s * 0.3, c, expl) for sid, s, c, expl in scored]
+            # Convert to SearchResult for CatBoost ranker
+            sr_list = [
+                SearchResult(
+                    ste_id=sid, name=c["name"], category=c["category"],
+                    attributes=c["attributes"], final_score=s,
+                )
+                for sid, s, c, _ in scored
+            ]
+            reranked = ranker.rerank(sr_list, user_ctx)
+            # Rebuild scored preserving explanations, use reranked order
+            reranked_scores = {r.ste_id: r.final_score for r in reranked}
+            scored = [(sid, reranked_scores.get(sid, s), c, expl) for sid, s, c, expl in scored]
     except Exception:
         pass
 
@@ -125,7 +136,7 @@ async def _get_candidates(req, pq, corrected_query: str, db: AsyncSession) -> li
         from app.services.search_service import get_search_service
         from app.services.nlp_service import get_nlp_service
         searcher = get_search_service()
-        if searcher.is_ready():
+        if searcher._initialized:
             nlp = get_nlp_service()
             query_data = nlp.process_query(req.query)
             ml_results = searcher.search(query_data, top_k=req.limit * 3)

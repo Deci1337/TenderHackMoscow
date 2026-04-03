@@ -18,7 +18,7 @@ from functools import lru_cache
 
 log = logging.getLogger(__name__)
 
-# Lazy-load pymorphy2 to avoid import cost at startup if library missing
+# Lazy-load pymorphy3 (preferred) or pymorphy2 as fallback
 _morph = None
 
 
@@ -26,12 +26,17 @@ def _get_morph():
     global _morph
     if _morph is None:
         try:
-            import pymorphy2
+            import pymorphy3 as pymorphy2
             _morph = pymorphy2.MorphAnalyzer()
-            log.info("pymorphy2 MorphAnalyzer loaded")
+            log.info("pymorphy3 MorphAnalyzer loaded")
         except ImportError:
-            log.warning("pymorphy2 not installed — morphology disabled")
-            _morph = False
+            try:
+                import pymorphy2
+                _morph = pymorphy2.MorphAnalyzer()
+                log.info("pymorphy2 MorphAnalyzer loaded (fallback)")
+            except ImportError:
+                log.warning("Neither pymorphy3 nor pymorphy2 installed — morphology disabled")
+                _morph = False
     return _morph if _morph else None
 
 
