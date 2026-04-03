@@ -122,10 +122,10 @@ export default function App() {
       <Header currentUser={user} onSwitchUser={() => setUser(null)} />
 
       <main className="max-w-7xl mx-auto px-4 py-8">
-        <div className="text-center mb-8">
-          <h2 className="text-2xl font-bold text-portal-text mb-2">Поиск по каталогу СТЕ</h2>
+        <div className="mb-6">
+          <h2 className="text-xl font-bold text-portal-text mb-1">Поиск по каталогу СТЕ</h2>
           <p className="text-portal-text-secondary text-sm">
-            Персонализированный поиск с учётом вашей истории закупок
+            Персонализированный поиск с учётом истории закупок и поведения пользователя
           </p>
         </div>
 

@@ -5,21 +5,49 @@ export default {
     extend: {
       colors: {
         portal: {
-          blue: "#0D47A1",
-          "blue-light": "#1565C0",
-          "blue-hover": "#0B3D91",
-          accent: "#FF6F00",
+          // Primary brand blue — zakupki.mos.ru header/buttons
+          blue: "#0050A0",
+          "blue-light": "#1A6FC4",
+          "blue-hover": "#003E80",
+          "blue-pale": "#E8F1FA",
+          // Accent — orange call-to-action
+          accent: "#F26123",
+          "accent-hover": "#D44E0E",
+          // Backgrounds
           bg: "#F5F7FA",
+          "bg-dark": "#EEF1F6",
           card: "#FFFFFF",
-          text: "#1A1A1A",
-          "text-secondary": "#6B7280",
-          border: "#E5E7EB",
-          success: "#2E7D32",
-          warning: "#F57F17",
+          // Text
+          text: "#1D1D1D",
+          "text-secondary": "#6C737A",
+          "text-muted": "#9BA3AB",
+          // Borders
+          border: "#D9DDE3",
+          "border-light": "#EAECF0",
+          // Status colors
+          success: "#1E7E34",
+          "success-bg": "#EAF5EB",
+          warning: "#C66A00",
+          "warning-bg": "#FEF6EB",
+          error: "#C62828",
+          "error-bg": "#FDEAEA",
+          info: "#0277BD",
+          "info-bg": "#E3F2FD",
         },
       },
       fontFamily: {
-        sans: ['"Inter"', '"Segoe UI"', "Roboto", "sans-serif"],
+        sans: ['"Inter"', '"Segoe UI"', '"PT Sans"', "Roboto", "sans-serif"],
+      },
+      fontSize: {
+        "2xs": ["0.625rem", { lineHeight: "0.875rem" }],
+      },
+      boxShadow: {
+        card: "0 1px 4px 0 rgba(0,0,0,0.08)",
+        "card-hover": "0 4px 16px 0 rgba(0,0,0,0.12)",
+        modal: "0 8px 40px 0 rgba(0,0,0,0.18)",
+      },
+      borderRadius: {
+        portal: "6px",
       },
     },
   },
