@@ -3,52 +3,10 @@
 @tailwind utilities;
 
 @layer base {
-  :root {
-    --color-blue:       #264B82;
-    --color-blue-gray:  #D4DBE6;
-    --color-blue-pale:  #E7EEF7;
-    --color-red:        #DB2B21;
-    --color-black:      #1A1A1A;
-    --color-gray-text:  #8C8C8C;
-    --color-green:      #0D9B68;
-    --color-sea-dark:   #167C85;
-    --color-sea-clear:  #48B8C2;
-    --color-orange:     #F67319;
-    --color-gray:       #7F8792;
-    --color-gray-light: #C9D1DF;
-  }
-
-  * {
-    box-sizing: border-box;
-  }
-
+  * { box-sizing: border-box; }
   body {
-    @apply text-portal-black bg-portal-blue-pale font-sans antialiased;
-    font-feature-settings: "cv02", "cv03", "cv04", "cv11";
+    @apply text-portal-black bg-portal-blue-pale font-sans antialiased m-0;
   }
-
-  input, button, select, textarea {
-    font-family: inherit;
-  }
-}
-
-@layer components {
-  .btn-primary {
-    @apply bg-portal-blue hover:bg-portal-blue-hover text-white font-semibold px-4 py-2 rounded-portal transition-colors disabled:opacity-40 disabled:cursor-not-allowed;
-  }
-
-  .btn-secondary {
-    @apply border border-portal-border text-portal-blue hover:bg-portal-blue-pale font-medium px-4 py-2 rounded-portal transition-colors;
-  }
-
-  .input-base {
-    @apply w-full px-4 py-2.5 border border-portal-border rounded-portal text-sm text-portal-black
-           placeholder:text-portal-gray-text
-           focus:border-portal-blue focus:outline-none focus:ring-2 focus:ring-portal-blue/20
-           transition-colors bg-white;
-  }
-
-  .card {
-    @apply bg-white rounded-portal border border-portal-border shadow-card;
-  }
+  button { cursor: pointer; }
+  input, button, select, textarea { font-family: inherit; }
 }
