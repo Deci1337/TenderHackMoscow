@@ -7,6 +7,7 @@ interface Props {
   item: STEResult;
   query: string;
   onAction: (steId: number, action: string) => void;
+  inCompare?: boolean;
 }
 
 const EXPLANATION_COLORS: Record<string, string> = {
@@ -17,7 +18,7 @@ const EXPLANATION_COLORS: Record<string, string> = {
   default: "bg-gray-50 text-gray-600 border-gray-200",
 };
 
-export default function STECard({ item, query, onAction }: Props) {
+export default function STECard({ item, query, onAction, inCompare = false }: Props) {
   const [showModal, setShowModal] = useState(false);
 
   return (
@@ -78,10 +79,14 @@ export default function STECard({ item, query, onAction }: Props) {
           </button>
           <button
             onClick={() => onAction(item.id, "compare")}
-            className="flex items-center gap-1.5 text-sm text-portal-text-secondary hover:bg-portal-bg rounded-lg px-3 py-1.5 transition-colors"
-            title="Добавить к сравнению"
+            className={`flex items-center gap-1.5 text-sm rounded-lg px-3 py-1.5 transition-colors ${
+              inCompare
+                ? "text-portal-blue bg-portal-blue/10"
+                : "text-portal-text-secondary hover:bg-portal-bg"
+            }`}
+            title={inCompare ? "Убрать из сравнения" : "Добавить к сравнению"}
           >
-            <GitCompare size={14} /> Сравнить
+            <GitCompare size={14} /> {inCompare ? "В сравнении" : "Сравнить"}
           </button>
           <button
             onClick={() => onAction(item.id, "hide")}
