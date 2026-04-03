@@ -5,6 +5,8 @@ then builds Dev2 ML search indexes (BM25 + embeddings + user profiles).
 Usage:
   python -m scripts.load_data
   python -m scripts.load_data --ste-file data/ste.csv --contracts-file data/contracts.csv
+
+Also supports headerless ``;``-separated STE/Contracts CSVs (hackathon export).
 """
 import argparse
 import asyncio
@@ -25,6 +27,104 @@ from app.models import STE, Contract, UserProfile
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
 log = logging.getLogger(__name__)
 
+STE_COLS = ["ste_id", "name", "category", "attributes"]
+CONTRACT_COLS = [
+    "purchase_name", "contract_id", "ste_id", "contract_date",
+    "contract_cost", "customer_inn", "customer_name", "customer_region",
+    "supplier_inn", "supplier_name", "supplier_region",
+]
+
+
+def deduplicate_attributes(attr_str: str) -> str:
+    """Remove duplicated key:value pairs within the semicolon-separated attributes string."""
+    if not attr_str or attr_str == "nan":
+        return ""
+    seen = set()
+    unique_pairs = []
+    for pair in str(attr_str).split(";"):
+        pair = pair.strip()
+        if pair and pair not in seen:
+            seen.add(pair)
+            unique_pairs.append(pair)
+    return "; ".join(unique_pairs)
+
+
+def _load_ste_df(filepath: str) -> pd.DataFrame:
+    if filepath.endswith((".xlsx", ".xls")):
+        return pd.read_excel(filepath)
+    probe = pd.read_csv(filepath, sep=";", header=None, nrows=2)
+    if len(probe.columns) >= 4:
+        try:
+            int(str(probe.iloc[0, 0]).strip())
+            df = pd.read_csv(
+                filepath, sep=";", header=None, names=STE_COLS,
+                dtype={"ste_id": str}, low_memory=False,
+            )
+            df = df.drop_duplicates(subset="ste_id", keep="first")
+            df["attributes"] = df["attributes"].fillna("").map(deduplicate_attributes)
+            return df
+        except (ValueError, TypeError):
+            pass
+    return pd.read_csv(filepath)
+
+
+def _load_contracts_df(filepath: str) -> pd.DataFrame:
+    if filepath.endswith((".xlsx", ".xls")):
+        return pd.read_excel(filepath)
+    probe = pd.read_csv(filepath, sep=";", header=None, nrows=2)
+    if len(probe.columns) >= len(CONTRACT_COLS):
+        try:
+            int(str(probe.iloc[0, 2]).strip())
+            return pd.read_csv(
+                filepath, sep=";", header=None, names=CONTRACT_COLS,
+                dtype={"contract_id": str, "ste_id": str, "customer_inn": str, "supplier_inn": str},
+                low_memory=False,
+            )
+        except (ValueError, TypeError):
+            pass
+    return pd.read_csv(filepath)
+
+
+def _ste_col_map(df: pd.DataFrame) -> dict:
+    if set(STE_COLS).issubset(set(df.columns)):
+        return {"id": "ste_id", "name": "name", "category": "category", "attributes": "attributes"}
+    return _detect_columns(df, {
+        "id": ["id", "ste_id", "identifier", "ste"],
+        "name": ["name", "naimenovanie", "ste_name", "название"],
+        "category": ["category", "kategoriya", "kategoria", "категория", "кпгз"],
+        "attributes": ["attributes", "atributy", "attrs", "характеристики"],
+    })
+
+
+def _contracts_col_map(df: pd.DataFrame) -> dict:
+    if set(CONTRACT_COLS).issubset(set(df.columns)):
+        return {
+            "purchase_name": "purchase_name",
+            "contract_id": "contract_id",
+            "ste_id": "ste_id",
+            "contract_date": "contract_date",
+            "cost": "contract_cost",
+            "customer_inn": "customer_inn",
+            "customer_name": "customer_name",
+            "customer_region": "customer_region",
+            "supplier_inn": "supplier_inn",
+            "supplier_name": "supplier_name",
+            "supplier_region": "supplier_region",
+        }
+    return _detect_columns(df, {
+        "purchase_name": ["purchase_name", "naimenovanie_zakupki", "naimenovanie", "наименование"],
+        "contract_id": ["contract_id", "identifikator_kontrakta", "id_kontrakta"],
+        "ste_id": ["ste_id", "identifikator_ste", "id_ste", "кпгз"],
+        "contract_date": ["contract_date", "data_zaklyucheniya", "data", "дата"],
+        "cost": ["cost", "stoimost", "stoimost_kontrakta", "стоимость", "contract_cost"],
+        "customer_inn": ["customer_inn", "inn_zakazchika", "инн заказчика", "инн"],
+        "customer_name": ["customer_name", "naimenovanie_zakazchika"],
+        "customer_region": ["customer_region", "region_zakazchika"],
+        "supplier_inn": ["supplier_inn", "inn_postavshchika"],
+        "supplier_name": ["supplier_name", "naimenovanie_postavshchika"],
+        "supplier_region": ["supplier_region", "region_postavshchika"],
+    })
+
 
 # ---------------------------------------------------------------------------
 # PostgreSQL loading (Dev1)
@@ -33,15 +133,10 @@ log = logging.getLogger(__name__)
 async def load_ste(session: AsyncSession, filepath: str):
     """Load STE catalog into PostgreSQL."""
     log.info("Loading STE from %s", filepath)
-    df = pd.read_excel(filepath) if filepath.endswith((".xlsx", ".xls")) else pd.read_csv(filepath)
+    df = _load_ste_df(filepath)
     log.info("STE: %d rows, cols: %s", len(df), list(df.columns))
 
-    col_map = _detect_columns(df, {
-        "id": ["id", "ste_id", "identifier", "ste"],
-        "name": ["name", "naimenovanie", "ste_name", "название"],
-        "category": ["category", "kategoriya", "kategoria", "категория", "кпгз"],
-        "attributes": ["attributes", "atributy", "attrs", "характеристики"],
-    })
+    col_map = _ste_col_map(df)
     log.info("Column mapping: %s", col_map)
 
     count = 0
@@ -66,22 +161,10 @@ async def load_ste(session: AsyncSession, filepath: str):
 async def load_contracts(session: AsyncSession, filepath: str):
     """Load Contracts into PostgreSQL."""
     log.info("Loading Contracts from %s", filepath)
-    df = pd.read_excel(filepath) if filepath.endswith((".xlsx", ".xls")) else pd.read_csv(filepath)
+    df = _load_contracts_df(filepath)
     log.info("Contracts: %d rows, cols: %s", len(df), list(df.columns))
 
-    col_map = _detect_columns(df, {
-        "purchase_name": ["purchase_name", "naimenovanie_zakupki", "naimenovanie", "наименование"],
-        "contract_id": ["contract_id", "identifikator_kontrakta", "id_kontrakta"],
-        "ste_id": ["ste_id", "identifikator_ste", "id_ste", "кпгз"],
-        "contract_date": ["contract_date", "data_zaklyucheniya", "data", "дата"],
-        "cost": ["cost", "stoimost", "stoimost_kontrakta", "стоимость"],
-        "customer_inn": ["customer_inn", "inn_zakazchika", "инн заказчика", "инн"],
-        "customer_name": ["customer_name", "naimenovanie_zakazchika"],
-        "customer_region": ["customer_region", "region_zakazchika"],
-        "supplier_inn": ["supplier_inn", "inn_postavshchika"],
-        "supplier_name": ["supplier_name", "naimenovanie_postavshchika"],
-        "supplier_region": ["supplier_region", "region_postavshchika"],
-    })
+    col_map = _contracts_col_map(df)
     log.info("Column mapping: %s", col_map)
 
     count = 0
@@ -142,7 +225,6 @@ def build_ml_indexes(ste_file: str, contracts_file: str | None = None):
         from app.services.nlp_service import get_nlp_service
         from app.services.embedding_service import get_embedding_service
         from app.services.search_service import get_search_service, STEDocument
-        from app.services.personalization_service import get_personalization_service
 
         log.info("Building ML indexes...")
         nlp = get_nlp_service()
@@ -150,13 +232,8 @@ def build_ml_indexes(ste_file: str, contracts_file: str | None = None):
         searcher = get_search_service()
         searcher.initialize(nlp, embedder)
 
-        df = pd.read_excel(ste_file) if ste_file.endswith((".xlsx", ".xls")) else pd.read_csv(ste_file)
-        col_map = _detect_columns(df, {
-            "id": ["id", "ste_id", "identifier", "ste"],
-            "name": ["name", "naimenovanie", "название"],
-            "category": ["category", "kategoria", "категория"],
-            "attributes": ["attributes", "atributy", "характеристики"],
-        })
+        df = _load_ste_df(ste_file)
+        col_map = _ste_col_map(df)
 
         documents, texts, ids = [], [], []
         for _, row in df.iterrows():
@@ -202,7 +279,7 @@ def _build_ml_profiles(contracts_file, ste_df, col_map, ste_embeddings):
     from app.services.personalization_service import get_personalization_service
     import numpy as np
 
-    df = pd.read_excel(contracts_file) if contracts_file.endswith((".xlsx", ".xls")) else pd.read_csv(contracts_file)
+    df = _load_contracts_df(contracts_file)
     inn_col = next((c for c in df.columns if "inn" in c.lower() or "инн" in c.lower()), None)
     ste_col = next((c for c in df.columns if "ste" in c.lower() or "кпгз" in c.lower()), None)
     if not inn_col:

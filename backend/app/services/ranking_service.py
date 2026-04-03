@@ -1,71 +1,71 @@
 """
-Learning-to-Rank Service with CatBoost.
+Learning-to-Rank Service.
+Supports three backends (tried in order):
+  1. CatBoost (best quality, trained on contract pseudo-labels)
+  2. JAX neural ranker (JIT-compiled, fast inference)
+  3. Linear weighted fallback (no training required)
 
-Feature set for the ranker:
-  User features:
-    - category_match (bool): query result category in user's top categories
-    - category_weight (float): weight of the category in user profile
-    - profile_similarity (float): cosine sim between user profile embedding and STE embedding
-    - total_contracts (int): user's total contract count (experience indicator)
-
-  Item features:
-    - popularity_score (float): global popularity of the STE
-    - name_length (int): length of the STE name (longer = more specific)
-
-  Query-Item features:
-    - bm25_score (float): normalized BM25 score
-    - semantic_score (float): normalized semantic similarity
-    - is_previously_purchased (bool): user bought this before
-    - is_negative_signal (bool): user bounced from this
-
-  Interaction features:
-    - session_click_rank (int): position in session click sequence (-1 if not clicked)
+Feature set (11 features):
+  bm25_score, semantic_score, category_match, category_weight,
+  profile_similarity, popularity_score, name_length,
+  is_previously_purchased, is_negative_signal,
+  total_user_contracts, session_click_count
 """
 import numpy as np
-from dataclasses import dataclass
+from pathlib import Path
 from loguru import logger
 
 from app.services.search_service import SearchResult
 from app.services.personalization_service import UserContext
 
-
 FEATURE_NAMES = [
-    "bm25_score",
-    "semantic_score",
-    "category_match",
-    "category_weight",
-    "profile_similarity",
-    "popularity_score",
-    "name_length",
-    "is_previously_purchased",
-    "is_negative_signal",
-    "total_user_contracts",
-    "session_click_count",
+    "bm25_score", "semantic_score", "category_match", "category_weight",
+    "profile_similarity", "popularity_score", "name_length",
+    "is_previously_purchased", "is_negative_signal",
+    "total_user_contracts", "session_click_count",
 ]
+
+_MODEL_DIR = Path(__file__).parent.parent / "data"
 
 
 class RankingService:
-    """
-    Lightweight LTR ranker. In production, this would use a trained CatBoost model.
-    For the hackathon MVP, we use a weighted linear combination that can be
-    replaced with CatBoost once training data is collected.
-    """
-
     def __init__(self):
-        self._model = None
+        self._catboost_model = None
+        self._jax_ranker = None
         self._feature_weights = np.array([
-            0.25,   # bm25_score
-            0.30,   # semantic_score
-            0.10,   # category_match
-            0.08,   # category_weight
-            0.10,   # profile_similarity
-            0.05,   # popularity_score
-            0.02,   # name_length (normalized)
-            0.05,   # is_previously_purchased
-            -0.10,  # is_negative_signal
-            0.02,   # total_user_contracts (normalized)
-            0.03,   # session_click_count (normalized)
+            0.25, 0.30, 0.10, 0.08, 0.10,
+            0.05, 0.02, 0.05, -0.10, 0.02, 0.03,
         ])
+        self._backend = "linear"
+        self._try_load_models()
+
+    def _try_load_models(self):
+        cbm_path = _MODEL_DIR / "catboost_ranker.cbm"
+        if cbm_path.exists():
+            try:
+                from catboost import CatBoostRanker
+                self._catboost_model = CatBoostRanker()
+                self._catboost_model.load_model(str(cbm_path))
+                self._backend = "catboost"
+                logger.info("Loaded CatBoost ranker")
+                return
+            except Exception as e:
+                logger.warning(f"Failed to load CatBoost: {e}")
+
+        jax_path = _MODEL_DIR / "jax_ranker.npz"
+        if jax_path.exists():
+            try:
+                from app.services.jax_ranker import JaxNeuralRanker, JAX_AVAILABLE
+                if JAX_AVAILABLE:
+                    self._jax_ranker = JaxNeuralRanker()
+                    if self._jax_ranker.load(str(jax_path)):
+                        self._backend = "jax"
+                        logger.info("Loaded JAX neural ranker")
+                        return
+            except Exception as e:
+                logger.warning(f"Failed to load JAX ranker: {e}")
+
+        logger.info("Using linear weight fallback ranker")
 
     def extract_features(
         self,
@@ -74,7 +74,6 @@ class RankingService:
         ste_embedding: np.ndarray | None = None,
         popularity: float = 0.0,
     ) -> np.ndarray:
-        """Extract feature vector for a single (query, user, item) triple."""
         cat_match = 0.0
         cat_weight = 0.0
         profile_sim = 0.0
@@ -95,24 +94,26 @@ class RankingService:
             session_clicks = min(len(user_ctx.session_clicks) / 20.0, 1.0)
 
         return np.array([
-            result.bm25_score,
-            result.semantic_score,
-            cat_match,
-            cat_weight,
-            profile_sim,
-            min(popularity, 1.0),
-            min(len(result.name) / 100.0, 1.0),
-            is_purchased,
-            is_negative,
-            total_contracts,
-            session_clicks,
-        ])
+            result.bm25_score, result.semantic_score,
+            cat_match, cat_weight, profile_sim,
+            min(popularity, 1.0), min(len(result.name) / 100.0, 1.0),
+            is_purchased, is_negative,
+            total_contracts, session_clicks,
+        ], dtype=np.float32)
 
     def score(self, features: np.ndarray) -> float:
-        """Score a single feature vector."""
-        if self._model is not None:
-            return float(self._model.predict([features])[0])
+        if self._backend == "catboost" and self._catboost_model is not None:
+            return float(self._catboost_model.predict([features])[0])
+        if self._backend == "jax" and self._jax_ranker is not None:
+            return self._jax_ranker.predict(features)
         return float(np.dot(self._feature_weights, features))
+
+    def score_batch(self, features_batch: np.ndarray) -> np.ndarray:
+        if self._backend == "catboost" and self._catboost_model is not None:
+            return self._catboost_model.predict(features_batch)
+        if self._backend == "jax" and self._jax_ranker is not None:
+            return self._jax_ranker.predict_batch(features_batch)
+        return features_batch @ self._feature_weights
 
     def rerank(
         self,
@@ -121,42 +122,27 @@ class RankingService:
         ste_embeddings: dict[int, np.ndarray] | None = None,
         popularity_map: dict[int, float] | None = None,
     ) -> list[SearchResult]:
-        """Apply LTR model to rerank search results."""
         if not results:
             return results
 
-        for r in results:
+        features_batch = np.zeros((len(results), len(FEATURE_NAMES)), dtype=np.float32)
+        for i, r in enumerate(results):
             emb = ste_embeddings.get(r.ste_id) if ste_embeddings else None
             pop = popularity_map.get(r.ste_id, 0.0) if popularity_map else 0.0
-            features = self.extract_features(r, user_ctx, emb, pop)
-            ltr_score = self.score(features)
-            r.final_score = ltr_score
+            features_batch[i] = self.extract_features(r, user_ctx, emb, pop)
+
+        scores = self.score_batch(features_batch)
+
+        for i, r in enumerate(results):
+            r.final_score = float(scores[i])
+            if self._backend != "linear":
+                r.explanations.append(f"Ranked by {self._backend} model")
 
         results.sort(key=lambda r: r.final_score, reverse=True)
         return results
 
-    def train_catboost(self, X: np.ndarray, y: np.ndarray, groups: np.ndarray):
-        """
-        Train CatBoost ranker on collected interaction data.
-        X: feature matrix (n_samples, n_features)
-        y: relevance labels (0-4 scale)
-        groups: query group sizes
-        """
-        try:
-            from catboost import CatBoostRanker, Pool
-            train_pool = Pool(data=X, label=y, group_id=groups)
-            model = CatBoostRanker(
-                iterations=300,
-                learning_rate=0.05,
-                depth=6,
-                loss_function="YetiRank",
-                verbose=50,
-            )
-            model.fit(train_pool)
-            self._model = model
-            logger.info("CatBoost ranker trained successfully")
-        except ImportError:
-            logger.warning("CatBoost not available, using linear weights fallback")
+    def get_backend_info(self) -> dict:
+        return {"backend": self._backend, "features": FEATURE_NAMES}
 
 
 _ranking_service: RankingService | None = None
@@ -167,3 +153,5 @@ def get_ranking_service() -> RankingService:
     if _ranking_service is None:
         _ranking_service = RankingService()
     return _ranking_service
+
+

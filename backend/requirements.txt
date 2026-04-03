@@ -13,9 +13,8 @@ pgvector>=0.3.0
 redis>=5.0.0
 python-dotenv>=1.0.0
 
-# NLP & Morphology
-pymorphy2>=0.9.1
-pymorphy2-dicts-ru>=2.4.417127.4579844
+# NLP & Morphology (pymorphy3 for Python 3.12+)
+pymorphy3>=2.0.0
 symspellpy>=6.7.7
 nltk>=3.8.1
 
@@ -29,6 +28,13 @@ shap>=0.44.0
 # Embeddings (rubert-tiny2 — lightweight, CPU-friendly)
 sentence-transformers>=2.3.0
 torch>=2.1.0
+
+# Fast vector search
+faiss-cpu>=1.7.4
+
+# JAX for JIT-compiled neural ranker
+jax>=0.4.20
+jaxlib>=0.4.20
 
 # Data processing
 pandas>=2.2.0

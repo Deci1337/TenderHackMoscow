@@ -15,3 +15,6 @@ data/
 # Node
 node_modules/
 dist/
+
+.DS_Store
+*.csv
