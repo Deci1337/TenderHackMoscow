@@ -1,6 +1,5 @@
 import { useCallback, useRef, useState } from "react";
 import { api, SearchResponse } from "../api/client";
-import { SortBy } from "../components/SortDropdown";
 
 export function useSearch(userInn: string, sessionId: string) {
   const [response, setResponse] = useState<SearchResponse | null>(null);
@@ -9,20 +8,14 @@ export function useSearch(userInn: string, sessionId: string) {
   const abortRef = useRef<AbortController | null>(null);
 
   const search = useCallback(
-    async (
-      query: string,
-      offset = 0,
-      limit = 20,
-      sortBy: SortBy = "relevance",
-      category?: string,
-    ) => {
+    async (query: string, offset = 0, limit = 20) => {
       if (!query.trim()) { setResponse(null); return; }
       abortRef.current?.abort();
       abortRef.current = new AbortController();
       setLoading(true);
       setError(null);
       try {
-        const data = await api.search(query, userInn, sessionId, limit, offset, sortBy, category);
+        const data = await api.search(query, userInn, sessionId, limit, offset);
         setResponse(data);
       } catch (e: unknown) {
         if (e instanceof DOMException && e.name === "AbortError") return;

@@ -1,125 +1,116 @@
-import { useCallback, useState } from "react";
-import { api, STEResult } from "./api/client";
-import { useEvents } from "./hooks/useEvents";
-import { useSearch } from "./hooks/useSearch";
-import { Search, LogOut, ChevronRight, Loader2, PackageSearch, ThumbsDown, GitCompare, HelpCircle, Clock, X } from "lucide-react";
+import { useCallback, useEffect, useState } from "react";
+import { api, STEResult, SearchResponse } from "./api/client";
+import {
+  Search, LogOut, ChevronRight, Loader2, PackageSearch,
+  ThumbsDown, GitCompare, HelpCircle, Clock, X
+} from "lucide-react";
 
+/* ---------- constants ---------- */
 const PAGE_SIZE = 20;
-
-const INDUSTRIES = [
-  "Образование", "Здравоохранение", "Строительство", "IT и связь",
-  "ЖКХ", "Транспорт", "Культура и спорт", "Промышленность", "Другое",
-];
-
+const INDUSTRIES = ["Образование","Здравоохранение","Строительство","IT и связь","ЖКХ","Транспорт","Культура и спорт","Промышленность","Другое"];
 const DEMO_USERS = [
   { inn: "7701234567", name: "Школа №1234", industry: "Образование" },
   { inn: "7709876543", name: "Городская больница №5", industry: "Здравоохранение" },
   { inn: "7705551234", name: "СтройМонтаж", industry: "Строительство" },
 ];
-
-const POPULAR_QUERIES = ["бумага офисная", "картридж", "компьютер", "стул офисный"];
+const POPULAR = ["бумага офисная","картридж","компьютер","стул офисный"];
+const BADGE: Record<string,string> = {
+  history:"background:#E6F7F1;color:#0D9B68", category:"background:#E5F4F5;color:#167C85",
+  session:"background:#FEF3EB;color:#F67319", popularity:"background:#F3E8FF;color:#7C3AED",
+};
 
 interface User { inn: string; name: string; industry: string }
 
-/* ============================== APP ============================== */
-
+/* ============================================================
+   ROOT
+   ============================================================ */
 export default function App() {
   const [user, setUser] = useState<User | null>(null);
-  const [sessionId] = useState(() => `s_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`);
 
   if (!user) return <Onboarding onDone={setUser} />;
-  return <MainPage user={user} sessionId={sessionId} onLogout={() => setUser(null)} />;
+  return <Main user={user} onLogout={() => setUser(null)} />;
 }
 
-/* ========================== ONBOARDING =========================== */
-
+/* ============================================================
+   ONBOARDING
+   ============================================================ */
 function Onboarding({ onDone }: { onDone: (u: User) => void }) {
   const [inn, setInn] = useState("");
   const [name, setName] = useState("");
   const [industry, setIndustry] = useState("");
 
-  const submit = (e: React.FormEvent) => {
+  function submit(e: React.FormEvent) {
     e.preventDefault();
-    if (!inn || !industry) return;
-    api.onboard(inn, name, undefined, industry).catch(() => {});
-    onDone({ inn, name, industry });
-  };
+    if (inn && industry) {
+      api.onboard(inn, name, undefined, industry).catch(() => {});
+      onDone({ inn, name, industry });
+    }
+  }
 
-  const pick = (u: typeof DEMO_USERS[0]) => {
+  function pick(u: User) {
     api.onboard(u.inn, u.name, undefined, u.industry).catch(() => {});
     onDone(u);
-  };
+  }
 
   return (
-    <div className="min-h-screen bg-[#E7EEF7] flex items-center justify-center p-4">
-      <div className="bg-white rounded-lg shadow-lg w-full max-w-md overflow-hidden">
-        <div className="bg-[#264B82] px-6 py-5 text-white">
-          <div className="flex items-center gap-2 text-sm font-semibold mb-3">
-            <div className="w-7 h-7 bg-white rounded flex items-center justify-center text-[#264B82] font-black text-xs">П</div>
-            Портал поставщиков
+    <div style={{ minHeight: "100vh", background: "#E7EEF7", display: "flex", alignItems: "center", justifyContent: "center", padding: 16 }}>
+      <div style={{ background: "#fff", borderRadius: 8, boxShadow: "0 4px 24px rgba(0,0,0,.12)", width: "100%", maxWidth: 420, overflow: "hidden" }}>
+        {/* Header */}
+        <div style={{ background: "#264B82", padding: "20px 24px", color: "#fff" }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 12 }}>
+            <div style={{ width: 28, height: 28, background: "#fff", borderRadius: 4, display: "flex", alignItems: "center", justifyContent: "center", color: "#264B82", fontWeight: 900, fontSize: 12 }}>П</div>
+            <span style={{ fontWeight: 600, fontSize: 14 }}>Портал поставщиков</span>
           </div>
-          <h2 className="text-lg font-bold">Персонализация поиска</h2>
-          <p className="text-blue-200 text-sm mt-1">Укажите данные — система подберёт релевантные товары</p>
+          <div style={{ fontWeight: 700, fontSize: 18 }}>Персонализация поиска</div>
+          <div style={{ fontSize: 13, color: "#a3bfe0", marginTop: 4 }}>Укажите данные — система подберёт товары</div>
         </div>
 
-        <form onSubmit={submit} className="p-6 space-y-4">
-          <div>
-            <label className="block text-sm font-medium text-[#1A1A1A] mb-1">ИНН организации *</label>
-            <input
-              value={inn}
-              onChange={e => setInn(e.target.value.replace(/\D/g, "").slice(0, 12))}
-              placeholder="7701234567"
-              required
-              className="w-full px-3 py-2 border border-[#D4DBE6] rounded text-sm focus:border-[#264B82] focus:ring-2 focus:ring-[#264B82]/20 outline-none"
+        {/* Form */}
+        <form onSubmit={submit} style={{ padding: 24, display: "flex", flexDirection: "column", gap: 16 }}>
+          <label style={{ fontSize: 13, fontWeight: 600, color: "#1A1A1A" }}>
+            ИНН организации *
+            <input value={inn} onChange={e => setInn(e.target.value.replace(/\D/g,"").slice(0,12))} placeholder="7701234567" required
+              style={{ display: "block", width: "100%", marginTop: 4, padding: "8px 12px", border: "1px solid #D4DBE6", borderRadius: 4, fontSize: 14, outline: "none" }}
             />
-          </div>
-          <div>
-            <label className="block text-sm font-medium text-[#1A1A1A] mb-1">Название</label>
-            <input
-              value={name}
-              onChange={e => setName(e.target.value)}
-              placeholder="ГБОУ Школа №1234"
-              className="w-full px-3 py-2 border border-[#D4DBE6] rounded text-sm focus:border-[#264B82] focus:ring-2 focus:ring-[#264B82]/20 outline-none"
+          </label>
+          <label style={{ fontSize: 13, fontWeight: 600, color: "#1A1A1A" }}>
+            Название
+            <input value={name} onChange={e => setName(e.target.value)} placeholder="ГБОУ Школа №1234"
+              style={{ display: "block", width: "100%", marginTop: 4, padding: "8px 12px", border: "1px solid #D4DBE6", borderRadius: 4, fontSize: 14, outline: "none" }}
             />
-          </div>
+          </label>
           <div>
-            <label className="block text-sm font-medium text-[#1A1A1A] mb-1.5">Сфера деятельности *</label>
-            <div className="flex flex-wrap gap-2">
+            <div style={{ fontSize: 13, fontWeight: 600, color: "#1A1A1A", marginBottom: 8 }}>Сфера деятельности *</div>
+            <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
               {INDUSTRIES.map(ind => (
-                <button
-                  type="button"
-                  key={ind}
-                  onClick={() => setIndustry(ind)}
-                  className={`px-3 py-1.5 rounded text-sm border transition-all ${
-                    industry === ind
-                      ? "bg-[#264B82] text-white border-[#264B82]"
-                      : "bg-white text-[#1A1A1A] border-[#D4DBE6] hover:border-[#264B82]"
-                  }`}
-                >
-                  {ind}
-                </button>
+                <button type="button" key={ind} onClick={() => setIndustry(ind)}
+                  style={{
+                    padding: "6px 12px", borderRadius: 4, fontSize: 13, border: "1px solid",
+                    borderColor: industry === ind ? "#264B82" : "#D4DBE6",
+                    background: industry === ind ? "#264B82" : "#fff",
+                    color: industry === ind ? "#fff" : "#1A1A1A",
+                    cursor: "pointer",
+                  }}
+                >{ind}</button>
               ))}
             </div>
           </div>
-          <button
-            type="submit"
-            disabled={!inn || !industry}
-            className="w-full bg-[#264B82] hover:bg-[#1C3A6B] disabled:opacity-40 text-white font-semibold py-2.5 rounded text-sm transition-colors"
-          >
-            Начать поиск
-          </button>
+          <button type="submit" disabled={!inn || !industry}
+            style={{ padding: "10px 0", borderRadius: 4, border: "none", background: (!inn || !industry) ? "#a3bfe0" : "#264B82", color: "#fff", fontWeight: 600, fontSize: 14, cursor: (!inn || !industry) ? "default" : "pointer" }}
+          >Начать поиск</button>
         </form>
 
-        <div className="px-6 pb-5 pt-0">
-          <p className="text-xs text-[#8C8C8C] mb-2 font-medium uppercase tracking-wide">Демо</p>
+        {/* Demo */}
+        <div style={{ padding: "0 24px 20px" }}>
+          <div style={{ fontSize: 11, color: "#8C8C8C", fontWeight: 600, textTransform: "uppercase", letterSpacing: 1, marginBottom: 8 }}>Демо-пользователи</div>
           {DEMO_USERS.map(u => (
-            <button
-              key={u.inn}
-              onClick={() => pick(u)}
-              className="w-full text-left text-sm px-3 py-2 rounded hover:bg-[#E7EEF7] transition-colors flex justify-between"
+            <button key={u.inn} onClick={() => pick(u)}
+              style={{ display: "flex", justifyContent: "space-between", width: "100%", padding: "8px 12px", border: "none", background: "transparent", borderRadius: 4, cursor: "pointer", textAlign: "left", fontSize: 14 }}
+              onMouseEnter={e => (e.currentTarget.style.background = "#E7EEF7")}
+              onMouseLeave={e => (e.currentTarget.style.background = "transparent")}
             >
-              <span className="font-medium text-[#1A1A1A]">{u.name}</span>
-              <span className="text-xs text-[#8C8C8C]">{u.industry}</span>
+              <span style={{ fontWeight: 500, color: "#1A1A1A" }}>{u.name}</span>
+              <span style={{ fontSize: 12, color: "#8C8C8C" }}>{u.industry}</span>
             </button>
           ))}
         </div>
@@ -128,128 +119,187 @@ function Onboarding({ onDone }: { onDone: (u: User) => void }) {
   );
 }
 
-/* ========================== MAIN PAGE ============================ */
-
-function MainPage({ user, sessionId, onLogout }: { user: User; sessionId: string; onLogout: () => void }) {
+/* ============================================================
+   MAIN PAGE
+   ============================================================ */
+function Main({ user, onLogout }: { user: User; onLogout: () => void }) {
   const [query, setQuery] = useState("");
+  const [inputVal, setInputVal] = useState("");
+  const [response, setResponse] = useState<SearchResponse | null>(null);
+  const [loading, setLoading] = useState(false);
   const [offset, setOffset] = useState(0);
   const [modalItem, setModalItem] = useState<STEResult | null>(null);
-  const { response, loading, search } = useSearch(user.inn, sessionId);
-  const { trackClick, trackBounce, track } = useEvents(user.inn, sessionId);
+  const [history, setHistory] = useState<string[]>(() => {
+    try { return JSON.parse(localStorage.getItem("sh") || "[]"); } catch { return []; }
+  });
 
-  const doSearch = useCallback((q: string, off = 0) => {
-    setQuery(q);
-    setOffset(off);
-    search(q, off, PAGE_SIZE);
-  }, [search]);
+  const doSearch = useCallback(async (q: string, off = 0) => {
+    if (!q.trim()) return;
+    setQuery(q); setOffset(off); setLoading(true);
+    const h = [q, ...history.filter(x => x !== q)].slice(0, 5);
+    setHistory(h);
+    localStorage.setItem("sh", JSON.stringify(h));
+    try {
+      const data = await api.search(q, user.inn, `s_${Date.now()}`, PAGE_SIZE, off);
+      setResponse(data);
+    } catch {
+      setResponse({ query: q, corrected_query: null, did_you_mean: null, total: 0, results: [] });
+    } finally { setLoading(false); }
+  }, [user.inn, history]);
 
-  const handleAction = useCallback((steId: number, action: string) => {
-    if (action === "click") { trackClick(steId, query); setTimeout(() => trackBounce(steId, query), 2500); }
-    else track(steId, action, query);
-  }, [track, trackClick, trackBounce, query]);
+  function trackAction(steId: number, action: string) {
+    api.logEvent(user.inn, steId, action, `s_${Date.now()}`, query).catch(() => {});
+  }
 
   return (
-    <div className="min-h-screen bg-[#E7EEF7]">
+    <div style={{ minHeight: "100vh", background: "#E7EEF7" }}>
       {/* HEADER */}
-      <header className="bg-[#264B82]">
-        <div className="max-w-6xl mx-auto px-4 h-12 flex items-center justify-between">
-          <div className="flex items-center gap-2">
-            <div className="w-6 h-6 bg-white rounded flex items-center justify-center text-[#264B82] font-black text-[10px]">П</div>
-            <span className="text-white font-semibold text-sm">Портал поставщиков</span>
-            <span className="text-blue-300 text-xs ml-1 hidden sm:inline">/ Умный поиск СТЕ</span>
+      <header style={{ background: "#264B82", color: "#fff" }}>
+        <div style={{ maxWidth: 960, margin: "0 auto", padding: "0 16px", height: 48, display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+            <div style={{ width: 24, height: 24, background: "#fff", borderRadius: 4, display: "flex", alignItems: "center", justifyContent: "center", color: "#264B82", fontWeight: 900, fontSize: 10 }}>П</div>
+            <span style={{ fontWeight: 600, fontSize: 14 }}>Портал поставщиков</span>
+            <span style={{ color: "#a3bfe0", fontSize: 12, marginLeft: 4 }}>/ Умный поиск</span>
           </div>
-          <button onClick={onLogout} className="flex items-center gap-1.5 text-blue-200 hover:text-white text-xs transition-colors">
-            <span className="hidden sm:inline">{user.name || user.inn}</span>
-            <LogOut size={14} />
+          <button onClick={onLogout} style={{ background: "rgba(255,255,255,.15)", border: "none", color: "#fff", padding: "4px 12px", borderRadius: 4, fontSize: 13, cursor: "pointer", display: "flex", alignItems: "center", gap: 6 }}>
+            {user.name || user.inn} <LogOut size={14} />
           </button>
         </div>
       </header>
 
-      {/* SEARCH SECTION */}
-      <div className="bg-white border-b border-[#D4DBE6]">
-        <div className="max-w-6xl mx-auto px-4 py-5">
-          <h1 className="text-lg font-bold text-[#1A1A1A] mb-1">Каталог товаров СТЕ</h1>
-          <p className="text-sm text-[#8C8C8C] mb-4">
-            Персонализированный поиск · {user.industry} · ИНН {user.inn}
-          </p>
-          <SearchInput onSearch={q => doSearch(q, 0)} loading={loading} corrected={response?.corrected_query || null} />
+      {/* SEARCH BAR */}
+      <div style={{ background: "#fff", borderBottom: "1px solid #D4DBE6" }}>
+        <div style={{ maxWidth: 960, margin: "0 auto", padding: "20px 16px" }}>
+          <h1 style={{ fontSize: 18, fontWeight: 700, color: "#1A1A1A", margin: "0 0 4px" }}>Каталог товаров СТЕ</h1>
+          <p style={{ fontSize: 13, color: "#8C8C8C", margin: "0 0 16px" }}>{user.industry} · ИНН {user.inn}</p>
+          <form onSubmit={e => { e.preventDefault(); doSearch(inputVal); }} style={{ display: "flex", gap: 8 }}>
+            <div style={{ flex: 1, position: "relative" }}>
+              <Search size={16} style={{ position: "absolute", left: 12, top: "50%", transform: "translateY(-50%)", color: "#8C8C8C" }} />
+              <input value={inputVal} onChange={e => setInputVal(e.target.value)} placeholder="Поиск по каталогу СТЕ..."
+                style={{ width: "100%", padding: "10px 36px 10px 36px", border: "2px solid #D4DBE6", borderRadius: 6, fontSize: 14, outline: "none" }}
+                onFocus={e => (e.target.style.borderColor = "#264B82")}
+                onBlur={e => (e.target.style.borderColor = "#D4DBE6")}
+              />
+              {inputVal && (
+                <button type="button" onClick={() => setInputVal("")}
+                  style={{ position: "absolute", right: 8, top: "50%", transform: "translateY(-50%)", background: "none", border: "none", cursor: "pointer", color: "#8C8C8C" }}>
+                  <X size={16} />
+                </button>
+              )}
+            </div>
+            <button type="submit"
+              style={{ padding: "0 20px", background: "#264B82", color: "#fff", border: "none", borderRadius: 6, fontWeight: 600, fontSize: 14, cursor: "pointer" }}
+            >Найти</button>
+          </form>
+          {response?.corrected_query && (
+            <p style={{ marginTop: 8, fontSize: 13, color: "#F67319" }}>Показаны результаты по запросу <strong>«{response.corrected_query}»</strong></p>
+          )}
         </div>
       </div>
 
-      {/* RESULTS */}
-      <div className="max-w-6xl mx-auto px-4 py-5">
+      {/* CONTENT */}
+      <div style={{ maxWidth: 960, margin: "0 auto", padding: "20px 16px" }}>
+
+        {/* Loading */}
         {loading && (
-          <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-            {Array.from({ length: 6 }).map((_, i) => (
-              <div key={i} className="bg-white rounded border border-[#D4DBE6] p-4 animate-pulse">
-                <div className="h-4 bg-[#E7EEF7] rounded w-3/4 mb-2" />
-                <div className="h-3 bg-[#E7EEF7] rounded w-1/2 mb-3" />
-                <div className="h-3 bg-[#E7EEF7] rounded w-full" />
-              </div>
-            ))}
+          <div style={{ display: "flex", alignItems: "center", gap: 8, padding: 40, justifyContent: "center", color: "#8C8C8C" }}>
+            <Loader2 size={20} className="animate-spin" /> Поиск...
           </div>
         )}
 
+        {/* Results */}
         {!loading && response && response.results.length > 0 && (
           <>
-            <p className="text-sm text-[#8C8C8C] mb-3">
-              Найдено <span className="font-semibold text-[#1A1A1A]">{response.total}</span> результатов
-              по запросу «{response.query}»
+            <p style={{ fontSize: 13, color: "#8C8C8C", marginBottom: 12 }}>
+              Найдено <strong style={{ color: "#1A1A1A" }}>{response.total}</strong> результатов по запросу «{response.query}»
             </p>
-            <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+            <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill,minmax(280px,1fr))", gap: 12 }}>
               {response.results.map(item => (
-                <Card key={item.id} item={item} onAction={handleAction} onOpen={() => { handleAction(item.id, "click"); setModalItem(item); }} />
+                <div key={item.id} style={{ background: "#fff", border: "1px solid #D4DBE6", borderRadius: 6, display: "flex", flexDirection: "column" }}>
+                  <div style={{ padding: 16, flex: 1 }}>
+                    <div style={{ display: "flex", justifyContent: "space-between", gap: 8 }}>
+                      <h3 onClick={() => { trackAction(item.id, "click"); setModalItem(item); }}
+                        style={{ fontSize: 14, fontWeight: 600, color: "#1A1A1A", margin: 0, cursor: "pointer", lineHeight: 1.3 }}
+                        onMouseEnter={e => (e.currentTarget.style.color = "#264B82")}
+                        onMouseLeave={e => (e.currentTarget.style.color = "#1A1A1A")}
+                      >{item.name}</h3>
+                      <span style={{ fontSize: 10, fontFamily: "monospace", color: "#8C8C8C", background: "#E7EEF7", borderRadius: 3, padding: "2px 6px", whiteSpace: "nowrap", height: "fit-content" }}>{item.id}</span>
+                    </div>
+                    {item.category && <p style={{ fontSize: 12, color: "#8C8C8C", margin: "4px 0 0" }}>{item.category}</p>}
+                    {item.explanations.length > 0 && (
+                      <div style={{ display: "flex", flexWrap: "wrap", gap: 4, marginTop: 8 }}>
+                        {item.explanations.slice(0, 2).map((e, i) => (
+                          <span key={i} style={{ fontSize: 10, fontWeight: 600, padding: "2px 8px", borderRadius: 3, ...(BADGE[e.factor] ? Object.fromEntries(BADGE[e.factor].split(";").map(s => { const [k,v] = s.split(":"); return [k,v]; })) : { background: "#E7EEF7", color: "#8C8C8C" }) }}>{e.reason}</span>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                  <div style={{ padding: "8px 16px", borderTop: "1px solid #E7EEF7", display: "flex", alignItems: "center", gap: 4 }}>
+                    <button onClick={() => { trackAction(item.id, "click"); setModalItem(item); }}
+                      style={{ background: "none", border: "none", color: "#264B82", fontSize: 12, fontWeight: 600, cursor: "pointer", padding: "4px 8px", borderRadius: 4, display: "flex", alignItems: "center", gap: 4 }}
+                      onMouseEnter={e => (e.currentTarget.style.background = "#E7EEF7")}
+                      onMouseLeave={e => (e.currentTarget.style.background = "none")}
+                    >Подробнее <ChevronRight size={12} /></button>
+                    <button onClick={() => trackAction(item.id, "compare")}
+                      style={{ background: "none", border: "none", color: "#8C8C8C", fontSize: 12, cursor: "pointer", padding: "4px 8px", borderRadius: 4, display: "flex", alignItems: "center", gap: 4 }}
+                      onMouseEnter={e => (e.currentTarget.style.background = "#E7EEF7")}
+                      onMouseLeave={e => (e.currentTarget.style.background = "none")}
+                    ><GitCompare size={12} /> Сравнить</button>
+                    <button onClick={() => trackAction(item.id, "hide")}
+                      style={{ background: "none", border: "none", color: "#C9D1DF", fontSize: 12, cursor: "pointer", padding: "4px 8px", borderRadius: 4, marginLeft: "auto" }}
+                      onMouseEnter={e => { e.currentTarget.style.color = "#DB2B21"; e.currentTarget.style.background = "#FDECEA"; }}
+                      onMouseLeave={e => { e.currentTarget.style.color = "#C9D1DF"; e.currentTarget.style.background = "none"; }}
+                    ><ThumbsDown size={12} /></button>
+                  </div>
+                </div>
               ))}
             </div>
+            {/* Pagination */}
             {response.total > PAGE_SIZE && (
-              <div className="flex justify-center gap-2 mt-5">
-                <button
-                  disabled={offset === 0}
-                  onClick={() => doSearch(query, Math.max(0, offset - PAGE_SIZE))}
-                  className="px-4 py-2 text-sm border border-[#D4DBE6] rounded bg-white hover:bg-[#E7EEF7] disabled:opacity-40 transition-colors"
-                >
-                  Назад
-                </button>
-                <span className="px-3 py-2 text-sm text-[#8C8C8C]">
-                  {Math.floor(offset / PAGE_SIZE) + 1} / {Math.ceil(response.total / PAGE_SIZE)}
-                </span>
-                <button
-                  disabled={offset + PAGE_SIZE >= response.total}
-                  onClick={() => doSearch(query, offset + PAGE_SIZE)}
-                  className="px-4 py-2 text-sm border border-[#D4DBE6] rounded bg-white hover:bg-[#E7EEF7] disabled:opacity-40 transition-colors"
-                >
-                  Далее
-                </button>
+              <div style={{ display: "flex", justifyContent: "center", gap: 8, marginTop: 20 }}>
+                <button disabled={offset === 0} onClick={() => doSearch(query, Math.max(0, offset - PAGE_SIZE))}
+                  style={{ padding: "8px 16px", border: "1px solid #D4DBE6", borderRadius: 4, background: "#fff", cursor: offset === 0 ? "default" : "pointer", opacity: offset === 0 ? 0.4 : 1, fontSize: 13 }}
+                >Назад</button>
+                <span style={{ padding: "8px 12px", fontSize: 13, color: "#8C8C8C" }}>{Math.floor(offset / PAGE_SIZE) + 1} / {Math.ceil(response.total / PAGE_SIZE)}</span>
+                <button disabled={offset + PAGE_SIZE >= response.total} onClick={() => doSearch(query, offset + PAGE_SIZE)}
+                  style={{ padding: "8px 16px", border: "1px solid #D4DBE6", borderRadius: 4, background: "#fff", cursor: "pointer", fontSize: 13 }}
+                >Далее</button>
               </div>
             )}
           </>
         )}
 
+        {/* Empty results */}
         {!loading && response && response.results.length === 0 && (
-          <div className="text-center py-16">
-            <PackageSearch size={48} className="mx-auto mb-3 text-[#D4DBE6]" />
-            <p className="text-lg font-semibold text-[#1A1A1A]">По запросу «{query}» ничего не найдено</p>
-            <p className="text-sm text-[#8C8C8C] mt-1 mb-4">Попробуйте другой запрос или выберите из популярных</p>
-            <div className="flex flex-wrap justify-center gap-2">
-              {POPULAR_QUERIES.map(q => (
-                <button key={q} onClick={() => doSearch(q)} className="text-sm px-3 py-1.5 rounded border border-[#D4DBE6] hover:bg-[#264B82] hover:text-white hover:border-[#264B82] transition-colors">
-                  {q}
-                </button>
+          <div style={{ textAlign: "center", padding: "60px 0" }}>
+            <PackageSearch size={48} style={{ color: "#D4DBE6", margin: "0 auto 12px" }} />
+            <p style={{ fontSize: 16, fontWeight: 600, color: "#1A1A1A" }}>По запросу «{query}» ничего не найдено</p>
+            <p style={{ fontSize: 13, color: "#8C8C8C", marginTop: 4 }}>Попробуйте другой запрос</p>
+            <div style={{ display: "flex", flexWrap: "wrap", justifyContent: "center", gap: 8, marginTop: 16 }}>
+              {POPULAR.map(q => (
+                <button key={q} onClick={() => { setInputVal(q); doSearch(q); }}
+                  style={{ padding: "6px 14px", border: "1px solid #D4DBE6", borderRadius: 4, background: "#fff", cursor: "pointer", fontSize: 13 }}
+                  onMouseEnter={e => { e.currentTarget.style.background = "#264B82"; e.currentTarget.style.color = "#fff"; e.currentTarget.style.borderColor = "#264B82"; }}
+                  onMouseLeave={e => { e.currentTarget.style.background = "#fff"; e.currentTarget.style.color = "#1A1A1A"; e.currentTarget.style.borderColor = "#D4DBE6"; }}
+                >{q}</button>
               ))}
             </div>
           </div>
         )}
 
+        {/* Initial state */}
         {!loading && !response && (
-          <div className="text-center py-16">
-            <Search size={48} className="mx-auto mb-3 text-[#D4DBE6]" />
-            <p className="text-lg text-[#1A1A1A]">Начните вводить название товара</p>
-            <p className="text-sm text-[#8C8C8C] mt-1 mb-4">Система учтёт ваш профиль и историю закупок</p>
-            <div className="flex flex-wrap justify-center gap-2">
-              {POPULAR_QUERIES.map(q => (
-                <button key={q} onClick={() => doSearch(q)} className="text-sm px-3 py-1.5 rounded border border-[#D4DBE6] hover:bg-[#264B82] hover:text-white hover:border-[#264B82] transition-colors">
-                  {q}
-                </button>
+          <div style={{ textAlign: "center", padding: "60px 0" }}>
+            <Search size={48} style={{ color: "#D4DBE6", margin: "0 auto 12px" }} />
+            <p style={{ fontSize: 16, color: "#1A1A1A" }}>Начните вводить название товара</p>
+            <p style={{ fontSize: 13, color: "#8C8C8C", marginTop: 4, marginBottom: 16 }}>Система учтёт ваш профиль и историю закупок</p>
+            <div style={{ display: "flex", flexWrap: "wrap", justifyContent: "center", gap: 8 }}>
+              {POPULAR.map(q => (
+                <button key={q} onClick={() => { setInputVal(q); doSearch(q); }}
+                  style={{ padding: "6px 14px", border: "1px solid #D4DBE6", borderRadius: 4, background: "#fff", cursor: "pointer", fontSize: 13 }}
+                  onMouseEnter={e => { e.currentTarget.style.background = "#264B82"; e.currentTarget.style.color = "#fff"; e.currentTarget.style.borderColor = "#264B82"; }}
+                  onMouseLeave={e => { e.currentTarget.style.background = "#fff"; e.currentTarget.style.color = "#1A1A1A"; e.currentTarget.style.borderColor = "#D4DBE6"; }}
+                >{q}</button>
               ))}
             </div>
           </div>
@@ -257,193 +307,54 @@ function MainPage({ user, sessionId, onLogout }: { user: User; sessionId: string
       </div>
 
       {/* MODAL */}
-      {modalItem && <DetailModal item={modalItem} onClose={() => setModalItem(null)} onAction={handleAction} />}
-    </div>
-  );
-}
-
-/* ========================= SEARCH INPUT ========================== */
-
-function SearchInput({ onSearch, loading, corrected }: { onSearch: (q: string) => void; loading: boolean; corrected: string | null }) {
-  const [val, setVal] = useState("");
-  const [history] = useState<string[]>(() => {
-    try { return JSON.parse(localStorage.getItem("sh") || "[]"); } catch { return []; }
-  });
-  const [showHist, setShowHist] = useState(false);
-
-  const submit = (q: string) => {
-    if (!q.trim()) return;
-    const h = [q, ...history.filter(x => x !== q)].slice(0, 5);
-    localStorage.setItem("sh", JSON.stringify(h));
-    setShowHist(false);
-    onSearch(q.trim());
-  };
-
-  return (
-    <div className="relative">
-      <form onSubmit={e => { e.preventDefault(); submit(val); }}>
-        <div className="relative">
-          <Search size={18} className="absolute left-3 top-1/2 -translate-y-1/2 text-[#8C8C8C]" />
-          <input
-            value={val}
-            onChange={e => setVal(e.target.value)}
-            onFocus={() => { if (!val && history.length) setShowHist(true); }}
-            onBlur={() => setTimeout(() => setShowHist(false), 200)}
-            placeholder="Поиск по каталогу СТЕ..."
-            className="w-full pl-10 pr-20 py-3 border-2 border-[#D4DBE6] rounded-lg text-sm
-                       focus:border-[#264B82] focus:ring-2 focus:ring-[#264B82]/20 outline-none
-                       bg-white text-[#1A1A1A] placeholder:text-[#8C8C8C]"
-          />
-          <div className="absolute right-2 top-1/2 -translate-y-1/2 flex items-center gap-1">
-            {loading && <Loader2 size={16} className="animate-spin text-[#264B82]" />}
-            {val && (
-              <button type="button" onClick={() => { setVal(""); }} className="text-[#8C8C8C] hover:text-[#1A1A1A] p-1">
-                <X size={16} />
-              </button>
-            )}
-            <button type="submit" className="bg-[#264B82] hover:bg-[#1C3A6B] text-white px-3 py-1.5 rounded text-xs font-medium transition-colors">
-              Найти
-            </button>
-          </div>
-        </div>
-      </form>
-
-      {showHist && history.length > 0 && (
-        <div className="absolute z-30 top-full mt-1 w-full bg-white rounded-lg border border-[#D4DBE6] shadow-lg overflow-hidden">
-          <p className="px-3 py-1.5 text-[10px] text-[#8C8C8C] uppercase tracking-wide font-medium border-b border-[#E7EEF7]">Недавние</p>
-          {history.map((h, i) => (
-            <button key={i} onMouseDown={() => { setVal(h); submit(h); }} className="w-full text-left px-3 py-2 text-sm hover:bg-[#E7EEF7] flex items-center gap-2 transition-colors">
-              <Clock size={12} className="text-[#8C8C8C]" /> {h}
-            </button>
-          ))}
-        </div>
-      )}
-
-      {corrected && (
-        <p className="mt-2 text-sm text-[#F67319]">
-          Показаны результаты по запросу <strong>«{corrected}»</strong>
-        </p>
-      )}
-    </div>
-  );
-}
-
-/* ============================ CARD ================================ */
-
-const BADGE: Record<string, string> = {
-  history: "bg-[#E6F7F1] text-[#0D9B68]",
-  category: "bg-[#E5F4F5] text-[#167C85]",
-  session: "bg-[#FEF3EB] text-[#F67319]",
-  popularity: "bg-[#F3E8FF] text-[#7C3AED]",
-};
-
-function Card({ item, onAction, onOpen }: { item: STEResult; onAction: (id: number, a: string) => void; onOpen: () => void }) {
-  return (
-    <div className="bg-white rounded border border-[#D4DBE6] hover:shadow-md transition-shadow flex flex-col">
-      <div className="p-4 flex-1">
-        <div className="flex justify-between gap-2 mb-1">
-          <h3
-            className="text-sm font-semibold text-[#1A1A1A] leading-snug line-clamp-2 cursor-pointer hover:text-[#264B82] transition-colors"
-            onClick={onOpen}
-          >
-            {item.name}
-          </h3>
-          <span className="text-[10px] font-mono text-[#8C8C8C] bg-[#E7EEF7] rounded px-1.5 py-0.5 shrink-0 h-fit">{item.id}</span>
-        </div>
-        {item.category && <p className="text-xs text-[#8C8C8C] mb-2">{item.category}</p>}
-
-        {item.explanations.length > 0 && (
-          <div className="flex flex-wrap gap-1 mb-2">
-            {item.explanations.slice(0, 2).map((e, i) => (
-              <span key={i} className={`text-[10px] font-medium px-2 py-0.5 rounded ${BADGE[e.factor] || "bg-[#E7EEF7] text-[#8C8C8C]"}`}>
-                {e.reason}
-              </span>
-            ))}
-            {item.explanations.length > 2 && (
-              <span className="text-[10px] text-[#8C8C8C] flex items-center gap-0.5"><HelpCircle size={10} />+{item.explanations.length - 2}</span>
-            )}
-          </div>
-        )}
-
-        {item.attributes && Object.keys(item.attributes).length > 0 && (
-          <div className="text-[11px] text-[#8C8C8C] flex flex-wrap gap-x-3 gap-y-0.5 border-t border-[#E7EEF7] pt-2">
-            {Object.entries(item.attributes).slice(0, 3).map(([k, v]) => (
-              <span key={k}><span className="font-medium">{k}:</span> {String(v)}</span>
-            ))}
-          </div>
-        )}
-      </div>
-
-      <div className="px-4 py-2 border-t border-[#E7EEF7] flex items-center gap-1 text-xs">
-        <button onClick={onOpen} className="text-[#264B82] hover:bg-[#E7EEF7] rounded px-2 py-1 font-medium flex items-center gap-1 transition-colors">
-          Подробнее <ChevronRight size={12} />
-        </button>
-        <button onClick={() => onAction(item.id, "compare")} className="text-[#8C8C8C] hover:bg-[#E7EEF7] rounded px-2 py-1 flex items-center gap-1 transition-colors">
-          <GitCompare size={12} /> Сравнить
-        </button>
-        <button onClick={() => onAction(item.id, "hide")} className="ml-auto text-[#C9D1DF] hover:text-[#DB2B21] rounded px-2 py-1 transition-colors">
-          <ThumbsDown size={12} />
-        </button>
-      </div>
-    </div>
-  );
-}
-
-/* ========================= DETAIL MODAL ========================== */
-
-function DetailModal({ item, onClose, onAction }: { item: STEResult; onClose: () => void; onAction: (id: number, a: string) => void }) {
-  return (
-    <div className="fixed inset-0 z-50 bg-black/40 flex items-center justify-center p-4" onClick={e => e.target === e.currentTarget && onClose()}>
-      <div className="bg-white rounded-lg shadow-2xl w-full max-w-lg max-h-[90vh] overflow-y-auto">
-        <div className="flex justify-between items-start p-5 border-b border-[#D4DBE6]">
-          <div>
-            <h2 className="font-bold text-[#1A1A1A] text-base">{item.name}</h2>
-            {item.category && <p className="text-sm text-[#8C8C8C] mt-0.5">{item.category}</p>}
-          </div>
-          <button onClick={onClose} className="text-[#8C8C8C] hover:text-[#1A1A1A] p-1 transition-colors"><X size={18} /></button>
-        </div>
-        <div className="p-5 space-y-4">
-          <p className="text-xs font-mono text-[#8C8C8C] bg-[#E7EEF7] rounded inline-block px-2 py-1">ID: {item.id}</p>
-
-          {item.explanations.length > 0 && (
-            <div>
-              <p className="text-xs font-semibold text-[#8C8C8C] uppercase mb-1.5">Почему этот результат</p>
-              <ul className="space-y-1">
-                {item.explanations.map((e, i) => (
-                  <li key={i} className="text-sm flex items-start gap-2 text-[#1A1A1A]">
-                    <span className="mt-1.5 w-1.5 h-1.5 rounded-full bg-[#264B82] shrink-0" />
-                    {e.reason}
-                  </li>
-                ))}
-              </ul>
+      {modalItem && (
+        <div onClick={e => { if (e.target === e.currentTarget) setModalItem(null); }}
+          style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,.4)", display: "flex", alignItems: "center", justifyContent: "center", padding: 16, zIndex: 999 }}>
+          <div style={{ background: "#fff", borderRadius: 8, boxShadow: "0 8px 40px rgba(0,0,0,.2)", width: "100%", maxWidth: 480, maxHeight: "90vh", overflow: "auto" }}>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", padding: 20, borderBottom: "1px solid #D4DBE6" }}>
+              <div>
+                <h2 style={{ fontSize: 16, fontWeight: 700, color: "#1A1A1A", margin: 0 }}>{modalItem.name}</h2>
+                {modalItem.category && <p style={{ fontSize: 13, color: "#8C8C8C", margin: "4px 0 0" }}>{modalItem.category}</p>}
+              </div>
+              <button onClick={() => setModalItem(null)} style={{ background: "none", border: "none", cursor: "pointer", color: "#8C8C8C", padding: 4 }}><X size={18} /></button>
             </div>
-          )}
-
-          {item.attributes && Object.keys(item.attributes).length > 0 && (
-            <div>
-              <p className="text-xs font-semibold text-[#8C8C8C] uppercase mb-1.5">Характеристики</p>
-              <table className="w-full text-sm">
-                <tbody>
-                  {Object.entries(item.attributes).map(([k, v]) => (
-                    <tr key={k} className="border-b border-[#E7EEF7]">
-                      <td className="py-1.5 pr-3 font-medium text-[#1A1A1A] w-1/2">{k}</td>
-                      <td className="py-1.5 text-[#8C8C8C]">{String(v)}</td>
-                    </tr>
+            <div style={{ padding: 20 }}>
+              <span style={{ fontSize: 11, fontFamily: "monospace", color: "#8C8C8C", background: "#E7EEF7", borderRadius: 3, padding: "3px 8px" }}>ID: {modalItem.id}</span>
+              {modalItem.explanations.length > 0 && (
+                <div style={{ marginTop: 16 }}>
+                  <p style={{ fontSize: 11, fontWeight: 700, color: "#8C8C8C", textTransform: "uppercase", marginBottom: 8 }}>Почему этот результат</p>
+                  {modalItem.explanations.map((e, i) => (
+                    <p key={i} style={{ fontSize: 14, color: "#1A1A1A", margin: "4px 0", paddingLeft: 12, borderLeft: "3px solid #264B82" }}>{e.reason}</p>
                   ))}
-                </tbody>
-              </table>
+                </div>
+              )}
+              {modalItem.attributes && Object.keys(modalItem.attributes).length > 0 && (
+                <div style={{ marginTop: 16 }}>
+                  <p style={{ fontSize: 11, fontWeight: 700, color: "#8C8C8C", textTransform: "uppercase", marginBottom: 8 }}>Характеристики</p>
+                  <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 14 }}>
+                    <tbody>
+                      {Object.entries(modalItem.attributes).map(([k, v]) => (
+                        <tr key={k} style={{ borderBottom: "1px solid #E7EEF7" }}>
+                          <td style={{ padding: "6px 8px 6px 0", fontWeight: 500, color: "#1A1A1A", width: "45%" }}>{k}</td>
+                          <td style={{ padding: "6px 0", color: "#8C8C8C" }}>{String(v)}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
             </div>
-          )}
+            <div style={{ padding: 20, borderTop: "1px solid #D4DBE6", display: "flex", gap: 8 }}>
+              <button onClick={() => { trackAction(modalItem.id, "compare"); setModalItem(null); }}
+                style={{ padding: "8px 16px", border: "1px solid #D4DBE6", borderRadius: 4, background: "#fff", cursor: "pointer", fontSize: 13, display: "flex", alignItems: "center", gap: 4 }}
+              ><GitCompare size={14} /> Сравнить</button>
+              <button onClick={() => { trackAction(modalItem.id, "hide"); setModalItem(null); }}
+                style={{ marginLeft: "auto", padding: "8px 16px", border: "1px solid rgba(219,43,33,.3)", borderRadius: 4, background: "#fff", cursor: "pointer", fontSize: 13, color: "#DB2B21", display: "flex", alignItems: "center", gap: 4 }}
+              ><ThumbsDown size={14} /> Скрыть</button>
+            </div>
+          </div>
         </div>
-        <div className="p-5 border-t border-[#D4DBE6] flex gap-2">
-          <button onClick={() => { onAction(item.id, "compare"); onClose(); }} className="text-sm px-4 py-2 border border-[#D4DBE6] rounded hover:bg-[#E7EEF7] transition-colors flex items-center gap-1">
-            <GitCompare size={14} /> Сравнить
-          </button>
-          <button onClick={() => { onAction(item.id, "hide"); onClose(); }} className="ml-auto text-sm px-4 py-2 text-[#DB2B21] border border-[#DB2B21]/30 rounded hover:bg-[#FDECEA] transition-colors flex items-center gap-1">
-            <ThumbsDown size={14} /> Скрыть
-          </button>
-        </div>
-      </div>
+      )}
     </div>
   );
 }
