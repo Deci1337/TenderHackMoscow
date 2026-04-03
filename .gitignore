@@ -1,4 +1,17 @@
-# Hackathon Context
+# Cursor / IDE
 .cursorrules
 .cursor/rules/
 Skills/
+
+# Python
+__pycache__/
+*.pyc
+.venv/
+.env
+
+# Data
+data/
+
+# Node
+node_modules/
+dist/
