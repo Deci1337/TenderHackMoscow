@@ -412,8 +412,16 @@ function Main({ user, onLogout }: { user: User; onLogout: () => void }) {
                     <div style={{ padding: "14px 16px", flex: 1 }}>
                       <div style={{ display: "flex", justifyContent: "space-between", gap: 8 }}>
                         <div style={{ flex: 1 }}>
-                          <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 2 }}>
+                          <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 2, flexWrap: "wrap" }}>
                             <span style={{ fontSize: 11, fontWeight: 700, color: "#264B82", background: "#E7EEF7", borderRadius: 3, padding: "1px 6px", fontFamily: "monospace" }}>#{offset + idx + 1}</span>
+                            {item.creator_user_id && (
+                              <span style={{ fontSize: 10, fontWeight: 700, color: "#fff", background: "#167C85", borderRadius: 3, padding: "1px 6px", letterSpacing: 0.5 }}>ТЕСТ</span>
+                            )}
+                            {item.is_promoted && (
+                              <span style={{ fontSize: 10, fontWeight: 700, color: "#fff", background: "#F67319", borderRadius: 3, padding: "1px 6px", display: "flex", alignItems: "center", gap: 2 }}>
+                                <Zap size={9} /> ПРОДВИГАЕТСЯ
+                              </span>
+                            )}
                             <h3 onClick={() => { trackAction(item.id, "click", item.category ?? undefined); setModalItem(item); }}
                               style={{ fontSize: 14, fontWeight: 600, color: "#1A1A1A", margin: 0, cursor: "pointer", lineHeight: 1.35 }}
                               onMouseEnter={e => (e.currentTarget.style.color = "#264B82")}

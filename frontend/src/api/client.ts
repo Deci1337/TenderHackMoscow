@@ -22,9 +22,13 @@ export interface STEResult {
   attributes: Record<string, unknown> | null;
   score: number;
   explanations: RankingExplanation[];
-  snippet?: string | null;      // ts_headline excerpt with <<matched>> markers
-  avg_price?: number | null;    // average historical contract price
+  snippet?: string | null;
+  avg_price?: number | null;
   price_trend?: "up" | "down" | "stable" | null;
+  tags?: string[];
+  is_promoted?: boolean;
+  promotion_boost?: number;
+  creator_user_id?: string | null;
 }
 
 export interface SearchResponse {

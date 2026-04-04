@@ -36,6 +36,7 @@ class STEResult(BaseModel):
     tags: list[str] = []
     is_promoted: bool = False
     promotion_boost: float = 0.0
+    creator_user_id: str | None = None
 
 
 class SearchResponse(BaseModel):

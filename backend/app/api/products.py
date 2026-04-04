@@ -51,21 +51,35 @@ async def _ensure_product_columns(db: AsyncSession) -> None:
             await db.execute(text(stmt))
         except Exception:
             await db.rollback()
-    # Sync sequence with real data (prevents duplicate key errors after bulk imports)
-    try:
-        await db.execute(text(
-            "SELECT setval('ste_id_seq', GREATEST((SELECT MAX(id) FROM ste), 1))"
-        ))
-    except Exception:
-        await db.rollback()
     await db.commit()
     _COLUMNS_ENSURED = True
+
+
+_SEQ_SYNCED = False
+
+async def _sync_sequence_once(db: AsyncSession) -> None:
+    """Fix ste_id_seq if it's behind real data (after bulk CSV imports)."""
+    global _SEQ_SYNCED
+    if _SEQ_SYNCED:
+        return
+    try:
+        r = await db.execute(text("SELECT last_value FROM ste_id_seq"))
+        seq_val = r.scalar() or 0
+        r2 = await db.execute(text("SELECT MAX(id) FROM ste"))
+        max_id = r2.scalar() or 0
+        if max_id > seq_val:
+            await db.execute(text(f"SELECT setval('ste_id_seq', {max_id})"))
+            await db.commit()
+    except Exception:
+        await db.rollback()
+    _SEQ_SYNCED = True
 
 
 @router.post("", response_model=dict)
 async def create_product(req: CreateProductRequest, db: AsyncSession = Depends(get_db)):
     """Supplier creates a new product listing in the catalog."""
     await _ensure_product_columns(db)
+    await _sync_sequence_once(db)
     # name_tsv is omitted — the ste_tsv_trigger (Sprint2 migration) fills it automatically.
     # tags use bindparam with ARRAY(String()) so asyncpg knows the PostgreSQL type.
     stmt = text("""

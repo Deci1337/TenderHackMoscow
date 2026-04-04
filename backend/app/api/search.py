@@ -212,6 +212,7 @@ async def search_ste(req: SearchRequest, db: AsyncSession = Depends(get_db)):
                 and row["promoted_until"] > _now_resp
             ),
             promotion_boost=float(row.get("promotion_boost") or 0),
+            creator_user_id=row.get("creator_user_id") or None,
         )
         for sid, score, row, explanations in page
     ]
@@ -418,21 +419,38 @@ async def _get_candidates(req, pq, corrected_query: str, db: AsyncSession,
             qtok = [w for w in corrected_query.split() if len(w) >= 2]
             pool = 8 if len(qtok) >= 2 else 3
             ml_results = searcher.search(_qd, top_k=req.limit * pool)
+            if not ml_results:
+                return []
+            # Fetch promotion/order data from DB for ML candidates (not in the index)
+            ml_ids = [r.ste_id for r in ml_results]
+            promo_rows = {}
+            try:
+                from sqlalchemy import bindparam as _bp
+                _promo_q = await db.execute(
+                    text("SELECT id, promoted_until, promotion_boost, order_count, tags, creator_user_id "
+                         "FROM ste WHERE id = ANY(:ids)"),
+                    {"ids": ml_ids},
+                )
+                for pr in _promo_q.mappings().all():
+                    promo_rows[pr["id"]] = pr
+            except Exception:
+                pass
             return [
                 {
                     "id": r.ste_id,
                     "name": r.name,
                     "category": r.category,
                     "attributes": r.attributes,
-                    "tags": [],
-                    "promoted_until": None,
-                    "promotion_boost": 0.0,
+                    "tags": (promo_rows.get(r.ste_id) or {}).get("tags") or [],
+                    "promoted_until": (promo_rows.get(r.ste_id) or {}).get("promoted_until"),
+                    "promotion_boost": float((promo_rows.get(r.ste_id) or {}).get("promotion_boost") or 0),
                     "snippet": "",
                     "base_score": float(r.final_score),
                     "bm25_score": r.bm25_score,
                     "semantic_score": r.semantic_score,
                     "popularity": 0,
-                    "order_count": 0,
+                    "order_count": int((promo_rows.get(r.ste_id) or {}).get("order_count") or 0),
+                    "creator_user_id": (promo_rows.get(r.ste_id) or {}).get("creator_user_id") or "",
                 }
                 for r in ml_results
             ]
@@ -459,7 +477,7 @@ async def _get_candidates(req, pq, corrected_query: str, db: AsyncSession,
         await db.execute(
             text(f"""
         SELECT s.id, s.name, s.category, s.attributes, s.tags,
-               s.promoted_until, s.promotion_boost,
+               s.promoted_until, s.promotion_boost, s.creator_user_id,
                COALESCE(s.order_count, 0)                                      AS order_count,
                ts_rank(s.name_tsv, to_tsquery('russian', :expanded_tsq))       AS ts_score_orig,
                ts_rank(s.name_tsv, plainto_tsquery('russian', :lemma))         AS ts_score_lemma,
@@ -514,6 +532,7 @@ async def _get_candidates(req, pq, corrected_query: str, db: AsyncSession,
             "semantic_score": 0.0,
             "popularity": int(r["popularity"]),
             "order_count": int(r.get("order_count") or r["popularity"]),
+            "creator_user_id": r.get("creator_user_id") or "",
         }
         for r in rows
     ]

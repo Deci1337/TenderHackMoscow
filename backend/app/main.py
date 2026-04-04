@@ -58,7 +58,9 @@ async def _build_ml_indexes():
             import pickle
             with open(path, "rb") as f:
                 data = pickle.load(f)
-            if len(data) != expected_len:
+            # Allow small mismatch: if only a few rows were added via API,
+            # reuse the cache and process only the delta below.
+            if len(data) > expected_len:
                 return None
             return data
 
@@ -110,6 +112,13 @@ async def _build_ml_indexes():
             await loop.run_in_executor(_executor, _save_nlp_cache, nlp_cache_path, raw_docs)
             logger.info("NLP cache saved to disk")
             cached_nlp = raw_docs
+        elif len(cached_nlp) < len(rows):
+            delta_rows = rows[len(cached_nlp):]
+            logger.info(f"NLP cache has {len(cached_nlp)} docs, processing {len(delta_rows)} new...")
+            delta = await loop.run_in_executor(_executor, _process_rows_nlp, list(delta_rows))
+            cached_nlp.extend(delta)
+            await loop.run_in_executor(_executor, _save_nlp_cache, nlp_cache_path, cached_nlp)
+            logger.info(f"NLP cache updated (+{len(delta)})")
 
         for d in cached_nlp:
             doc = STEDocument(
@@ -121,13 +130,26 @@ async def _build_ml_indexes():
             texts.append(d["name"])
 
         # --- Embedding cache ----------------------------------------------
+        # Tolerate small mismatches (e.g. a few products added via API) to avoid
+        # re-computing 537k embeddings on every restart.
         cache_path = _DATA_DIR / "ste_embeddings_cache.npy"
         embs = None
         if cache_path.exists():
             cached = np.load(str(cache_path))
-            if cached.shape[0] == len(documents):
+            diff = len(documents) - cached.shape[0]
+            if diff == 0:
                 embs = cached
                 logger.info(f"Loaded {len(embs)} cached embeddings from disk")
+            elif 0 < diff <= 500:
+                logger.info(
+                    f"Embedding cache has {cached.shape[0]} rows, need {len(documents)} "
+                    f"({diff} new). Embedding only the delta."
+                )
+                new_texts = texts[cached.shape[0]:]
+                new_embs = embedder.embed(new_texts)
+                embs = np.vstack([cached, new_embs])
+                np.save(str(cache_path), embs)
+                logger.info(f"Delta embeddings computed and cache updated (+{diff})")
             else:
                 logger.warning(
                     f"Embedding cache size mismatch ({cached.shape[0]} vs {len(documents)}), "
