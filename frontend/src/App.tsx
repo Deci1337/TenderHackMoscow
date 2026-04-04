@@ -164,7 +164,7 @@ function Main({ user, onLogout }: { user: User; onLogout: () => void }) {
     const h = [q, ...history.filter(x => x !== q)].slice(0, 8);
     localStorage.setItem("sh", JSON.stringify(h));
     try {
-      const data = await api.search(q, user.id, sessionId, PAGE_SIZE, off, sort, cat || undefined);
+      const data = await api.search(q, user.id, sessionId, PAGE_SIZE, off, sort, cat || undefined, user.interests);
       setResponse(data);
     } catch {
       setResponse({ query: q, corrected_query: null, did_you_mean: null, total: 0, results: [] });

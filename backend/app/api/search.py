@@ -42,10 +42,13 @@ async def search_ste(req: SearchRequest, db: AsyncSession = Depends(get_db)):
     was_corrected = False
     applied_synonyms: list[str] = []
 
+    # Primary industry for context-aware NLP (first declared interest)
+    user_industry = req.interests[0] if req.interests else None
+
     try:
         from app.services.nlp_service import get_nlp_service
         nlp = get_nlp_service()
-        query_data = nlp.process_query(req.query)
+        query_data = nlp.process_query(req.query, user_industry=user_industry)
         corrected_query = query_data.get("corrected", corrected_query)
         was_corrected = query_data.get("was_corrected", False)
         applied_synonyms = query_data.get("applied_synonyms", [])

@@ -13,6 +13,8 @@ class SearchRequest(BaseModel):
     offset: int = Field(0, ge=0)
     sort_by: str = Field("relevance", pattern="^(relevance|popularity|name)$")
     category: str | None = None
+    # Declared user interests — used to steer NLP synonym expansion and personalization
+    interests: list[str] = []
 
 
 class RankingExplanation(BaseModel):

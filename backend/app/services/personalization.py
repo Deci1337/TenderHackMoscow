@@ -14,17 +14,46 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models import Contract, Event, UserProfile
 
-# Map declared industry -> STE categories relevant for cold-start users
+# Map declared interest -> STE categories that are RELEVANT (get boost)
 INDUSTRY_CATEGORIES: dict[str, list[str]] = {
-    "Образование":      ["Образование", "Канцелярские товары"],
-    "Здравоохранение":  ["Медицинские товары", "Хозяйственные товары"],
-    "Строительство":    ["Стройматериалы", "Электротехника"],
-    "IT и связь":       ["IT-оборудование"],
-    "ЖКХ":              ["ЖКХ", "Электротехника"],
-    "Промышленность":   ["Стройматериалы", "IT-оборудование"],
-    "Культура и спорт": ["Образование", "Канцелярские товары"],
-    "Транспорт":        ["IT-оборудование", "Электротехника"],
-    "Другое":           [],
+    "Строительство":        ["Стройматериалы", "Электротехника", "Инструменты", "ЖКХ", "Сантехника", "Металлопрокат"],
+    "Образование":          ["Образование", "Канцелярские товары", "Мебель школьная", "Спортивный инвентарь"],
+    "Здравоохранение":      ["Медицинские товары", "Медицинское оборудование", "Фармацевтика", "Хозяйственные товары"],
+    "IT и связь":           ["IT-оборудование", "Оргтехника", "Электротехника", "Программное обеспечение"],
+    "ЖКХ":                  ["ЖКХ", "Электротехника", "Стройматериалы", "Сантехника", "Инструменты"],
+    "Промышленность":       ["Стройматериалы", "IT-оборудование", "Инструменты", "Электротехника", "Металлопрокат"],
+    "Культура и спорт":     ["Спортивный инвентарь", "Образование", "Канцелярские товары", "Мебель"],
+    "Транспорт":            ["IT-оборудование", "Электротехника", "Запчасти"],
+    "Канцелярские товары":  ["Канцелярские товары", "Офисная мебель"],
+    "Медицинские товары":   ["Медицинские товары", "Медицинское оборудование", "Фармацевтика"],
+    "IT-оборудование":      ["IT-оборудование", "Оргтехника", "Электротехника"],
+    "Стройматериалы":       ["Стройматериалы", "Инструменты", "Электротехника", "Сантехника"],
+    "Электротехника":       ["Электротехника", "IT-оборудование", "Инструменты"],
+    "Хозяйственные товары": ["Хозяйственные товары", "Канцелярские товары"],
+    "Другое":               [],
+}
+
+# Categories every organisation needs — never penalise these
+UNIVERSAL_CATEGORIES: frozenset[str] = frozenset({
+    "IT-оборудование", "Оргтехника", "Канцелярские товары",
+    "Хозяйственные товары", "Офисная мебель", "Мебель",
+})
+
+# Categories that are domain-specific: maps category -> which interests consider it relevant
+# Items in these categories will be penalised if the user's interests don't cover them
+DOMAIN_SPECIFIC_CATEGORIES: dict[str, list[str]] = {
+    "Медицинские товары":       ["Здравоохранение", "Медицинские товары"],
+    "Медицинское оборудование": ["Здравоохранение", "Медицинские товары"],
+    "Фармацевтика":             ["Здравоохранение", "Медицинские товары"],
+    "Стройматериалы":           ["Строительство", "ЖКХ", "Промышленность", "Стройматериалы"],
+    "Сантехника":               ["Строительство", "ЖКХ"],
+    "Металлопрокат":            ["Строительство", "Промышленность"],
+    "Инструменты":              ["Строительство", "ЖКХ", "Промышленность"],
+    "Образование":              ["Образование", "Культура и спорт"],
+    "Мебель школьная":          ["Образование"],
+    "Спортивный инвентарь":     ["Культура и спорт", "Образование"],
+    "Запчасти":                 ["Транспорт", "Промышленность"],
+    "Программное обеспечение":  ["IT и связь", "IT-оборудование"],
 }
 
 
@@ -64,6 +93,9 @@ async def get_user_boosts(
     else:
         # Cold-start user: use declared industry instead of non-existent history
         await _apply_industry_affinity(db, user_inn, candidate_ids, scores)
+
+    # Always apply mismatch penalty when user has declared interests
+    await _apply_profile_mismatch_penalty(db, user_inn, candidate_ids, scores)
 
     if session_id:
         await _apply_session_events(db, user_inn, session_id, candidate_ids, scores)
@@ -241,4 +273,63 @@ async def _apply_industry_affinity(
                 "reason": f"Соответствует вашим интересам: «{label}»",
                 "factor": "category",
                 "weight": 0.25,
+            })
+
+
+async def _apply_profile_mismatch_penalty(
+    db: AsyncSession,
+    user_inn: str,
+    candidate_ids: list[int],
+    scores: dict[int, ScoredSTE],
+) -> None:
+    """
+    Penalise domain-specific items that do not match the user's declared interests.
+
+    Example: user profile = ['Строительство']
+      - toy "Стройка" in category "Игрушки"       → penalised (domain mismatch)
+      - "Компьютер" in "IT-оборудование"           → NOT penalised (universal)
+      - "Цемент" in "Стройматериалы"               → NOT penalised (relevant)
+      - "Бинт" in "Медицинские товары"             → penalised (healthcare, not construction)
+    """
+    if not candidate_ids:
+        return
+
+    profile = await db.get(UserProfile, user_inn)
+    if not profile:
+        return
+
+    interests: list[str] = []
+    if profile.profile_data and "interests" in profile.profile_data:
+        interests = profile.profile_data["interests"]
+    elif profile.industry:
+        interests = [profile.industry]
+    if not interests:
+        return
+
+    # Build the set of categories that are "safe" for this user
+    safe_cats: set[str] = set(UNIVERSAL_CATEGORIES)
+    for interest in interests:
+        safe_cats.update(INDUSTRY_CATEGORIES.get(interest, [interest]))
+
+    # Collect domain-specific categories that are NOT safe for this user
+    penalise_cats = [
+        cat for cat, relevant_interests in DOMAIN_SPECIFIC_CATEGORIES.items()
+        if cat not in safe_cats
+        and not any(i in relevant_interests for i in interests)
+    ]
+    if not penalise_cats:
+        return
+
+    rows = await db.execute(text("""
+        SELECT id, category FROM ste
+        WHERE id = ANY(:ids) AND category = ANY(:cats)
+    """), {"ids": candidate_ids, "cats": penalise_cats})
+
+    for ste_id, category in rows.all():
+        if ste_id in scores:
+            scores[ste_id].penalty += 0.65
+            scores[ste_id].explanations.append({
+                "reason": f"Вероятно, не соответствует вашему профилю (категория: {category})",
+                "factor": "profile_mismatch",
+                "weight": -0.65,
             })

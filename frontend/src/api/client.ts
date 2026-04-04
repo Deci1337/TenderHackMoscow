@@ -72,12 +72,13 @@ export const api = {
     offset = 0,
     sortBy = "relevance",
     category?: string,
+    interests: string[] = [],
   ) {
     return request<SearchResponse>("/search", {
       method: "POST",
       body: JSON.stringify({
         query, user_inn: userInn, session_id: sessionId,
-        limit, offset, sort_by: sortBy,
+        limit, offset, sort_by: sortBy, interests,
         ...(category ? { category } : {}),
       }),
     });
