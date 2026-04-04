@@ -8,7 +8,7 @@ from datetime import datetime, timedelta, timezone
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel
-from sqlalchemy import text
+from sqlalchemy import ARRAY, String, bindparam, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database import get_db
@@ -30,38 +30,66 @@ class PromoteRequest(BaseModel):
     creator_user_id: str
 
 
+_COLUMNS_ENSURED = False
+
 async def _ensure_product_columns(db: AsyncSession) -> None:
-    """Add sprint-2 columns to ste table if they don't exist yet."""
-    await db.execute(text("""
-        ALTER TABLE ste
-            ADD COLUMN IF NOT EXISTS tags TEXT[] DEFAULT '{}',
-            ADD COLUMN IF NOT EXISTS description TEXT,
-            ADD COLUMN IF NOT EXISTS promoted_until TIMESTAMPTZ,
-            ADD COLUMN IF NOT EXISTS promotion_boost NUMERIC DEFAULT 0,
-            ADD COLUMN IF NOT EXISTS creator_user_id TEXT,
-            ADD COLUMN IF NOT EXISTS order_count BIGINT DEFAULT 0
-    """))
+    """Add sprint-2 columns to ste table if they don't exist yet (once per process)."""
+    global _COLUMNS_ENSURED
+    if _COLUMNS_ENSURED:
+        return
+    stmts = [
+        "ALTER TABLE ste ADD COLUMN IF NOT EXISTS tags TEXT[] DEFAULT '{}'",
+        "ALTER TABLE ste ADD COLUMN IF NOT EXISTS description TEXT",
+        "ALTER TABLE ste ADD COLUMN IF NOT EXISTS promoted_until TIMESTAMPTZ",
+        "ALTER TABLE ste ADD COLUMN IF NOT EXISTS promotion_boost NUMERIC DEFAULT 0",
+        "ALTER TABLE ste ADD COLUMN IF NOT EXISTS creator_user_id TEXT",
+        "ALTER TABLE ste ADD COLUMN IF NOT EXISTS order_count BIGINT DEFAULT 0",
+    ]
+    for stmt in stmts:
+        try:
+            await db.execute(text(stmt))
+        except Exception:
+            await db.rollback()
+    # Sync sequence with real data (prevents duplicate key errors after bulk imports)
+    try:
+        await db.execute(text(
+            "SELECT setval('ste_id_seq', GREATEST((SELECT MAX(id) FROM ste), 1))"
+        ))
+    except Exception:
+        await db.rollback()
     await db.commit()
+    _COLUMNS_ENSURED = True
 
 
 @router.post("", response_model=dict)
 async def create_product(req: CreateProductRequest, db: AsyncSession = Depends(get_db)):
     """Supplier creates a new product listing in the catalog."""
     await _ensure_product_columns(db)
-    row = await db.execute(text("""
-        INSERT INTO ste (name, category, attributes, tags, description, creator_user_id, order_count,
-                         promotion_boost, name_tsv)
-        VALUES (:name, :cat, '{}', :tags, :desc, :uid, 0, 0,
-                to_tsvector('russian', :name || ' ' || :tagstr))
+    # name_tsv is omitted — the ste_tsv_trigger (Sprint2 migration) fills it automatically.
+    # tags use bindparam with ARRAY(String()) so asyncpg knows the PostgreSQL type.
+    stmt = text("""
+        INSERT INTO ste (name, category, attributes, tags, description,
+                         creator_user_id, order_count, promotion_boost)
+        VALUES (
+            :name,
+            :cat,
+            CAST(:attrs AS JSONB),
+            :tags,
+            :desc,
+            :uid,
+            0,
+            0
+        )
         RETURNING id, name, category, tags, order_count, promotion_boost,
                   promoted_until, creator_user_id
-    """), {
+    """).bindparams(bindparam("tags", type_=ARRAY(String())))
+    row = await db.execute(stmt, {
         "name": req.name.strip(),
         "cat": req.category.strip(),
-        "tags": req.tags,
+        "attrs": "{}",
+        "tags": req.tags or [],
         "desc": req.description.strip(),
         "uid": req.creator_user_id,
-        "tagstr": " ".join(req.tags),
     })
     await db.commit()
     r = row.fetchone()

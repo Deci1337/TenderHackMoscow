@@ -763,7 +763,6 @@ function CreateProductModal({ userId, onClose, onCreate }: {
 }) {
   const [name, setName] = useState("");
   const [category, setCategory] = useState("");
-  const [description, setDescription] = useState("");
   const [tagInput, setTagInput] = useState("");
   const [tags, setTags] = useState<string[]>([]);
   const [loading, setLoading] = useState(false);
@@ -780,7 +779,7 @@ function CreateProductModal({ userId, onClose, onCreate }: {
     if (!name.trim() || !category.trim()) { setError("Заполните название и категорию"); return; }
     setLoading(true); setError("");
     try {
-      const p = await api.createProduct({ name: name.trim(), category: category.trim(), tags, description: description.trim(), creator_user_id: userId });
+      const p = await api.createProduct({ name: name.trim(), category: category.trim(), tags, description: "", creator_user_id: userId });
       onCreate(p as unknown as MyProduct);
       onClose();
     } catch { setError("Ошибка при добавлении товара"); }
@@ -827,11 +826,6 @@ function CreateProductModal({ userId, onClose, onCreate }: {
                 style={{ flex: 1, padding: "7px 10px", border: "1px solid #D4DBE6", borderRadius: 4, fontSize: 13, outline: "none" }} />
               <button type="button" onClick={addTag} style={{ padding: "7px 12px", background: "#E7EEF7", border: "none", borderRadius: 4, cursor: "pointer", fontSize: 13, color: "#264B82" }}>+</button>
             </div>
-          </div>
-          <div>
-            <label style={{ fontSize: 12, fontWeight: 600, color: "#7F8792", display: "block", marginBottom: 4 }}>Описание</label>
-            <textarea value={description} onChange={e => setDescription(e.target.value)} rows={3} placeholder="Дополнительная информация о товаре..."
-              style={{ width: "100%", padding: "8px 12px", border: "1px solid #D4DBE6", borderRadius: 4, fontSize: 13, boxSizing: "border-box", outline: "none", resize: "vertical" }} />
           </div>
           <div style={{ display: "flex", gap: 8, justifyContent: "flex-end" }}>
             <button type="button" onClick={onClose} style={{ padding: "8px 18px", border: "1px solid #D4DBE6", borderRadius: 4, background: "#fff", cursor: "pointer", fontSize: 13 }}>Отмена</button>

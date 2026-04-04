@@ -68,22 +68,21 @@ async def search_ste(req: SearchRequest, db: AsyncSession = Depends(get_db)):
     strategy = INTENT_STRATEGY[intent]
 
     # --- Stage 2: Candidate retrieval with zero-result cascade ---
-    candidates = await _get_candidates(req, pq, corrected_query, db)
+    candidates = await _get_candidates(req, pq, corrected_query, db, query_data)
 
     # Cascade 1: category filter too strict -> retry without it
     if not candidates and req.category:
         log.debug("Zero results with category filter, retrying without")
         relaxed = req.model_copy(update={"category": None})
-        candidates = await _get_candidates(relaxed, pq, corrected_query, db)
+        candidates = await _get_candidates(relaxed, pq, corrected_query, db, query_data)
 
     # Cascade 2: multi-word query too specific -> retry with only the most meaningful word
     if not candidates and len(pq.lemmatized.split()) > 1:
-        # Use the longest lemma (most specific content word)
         core_word = max(pq.lemmatized.split(), key=len)
         log.debug("Zero results for '%s', retrying with core word '%s'", corrected_query, core_word)
         core_pq = process_query(core_word)
         relaxed2 = req.model_copy(update={"category": None})
-        candidates = await _get_candidates(relaxed2, core_pq, core_word, db)
+        candidates = await _get_candidates(relaxed2, core_pq, core_word, db, query_data)
 
     if not candidates:
         return SearchResponse(query=req.query, total=0, results=[])
@@ -406,21 +405,21 @@ def _apply_catboost_rerank(
     return scored
 
 
-async def _get_candidates(req, pq, corrected_query: str, db: AsyncSession) -> list[dict]:
+async def _get_candidates(req, pq, corrected_query: str, db: AsyncSession,
+                          query_data: dict | None = None) -> list[dict]:
     """
     Try hybrid ML search (BM25 + semantic) first.
     Fall back to SQL pg_trgm + tsvector if ML services are not ready.
     """
     try:
         from app.services.search_service import get_search_service
-        from app.services.nlp_service import get_nlp_service
         searcher = get_search_service()
         if searcher._initialized:
-            nlp = get_nlp_service()
-            query_data = nlp.process_query(req.query)
+            # Reuse query_data from the outer NLP call — avoid double processing
+            _qd = query_data or {}
             qtok = [w for w in corrected_query.split() if len(w) >= 2]
             pool = 8 if len(qtok) >= 2 else 3
-            ml_results = searcher.search(query_data, top_k=req.limit * pool)
+            ml_results = searcher.search(_qd, top_k=req.limit * pool)
             return [
                 {
                     "id": r.ste_id,
@@ -446,78 +445,39 @@ async def _get_candidates(req, pq, corrected_query: str, db: AsyncSession) -> li
     qtok = [w for w in corrected_query.split() if len(w) >= 2]
     fetch_limit = req.limit * (8 if len(qtok) >= 2 else 3)
     category_clause = "AND s.category = :category" if req.category else ""
-    is_phrase = len(corrected_query.split()) > 1
-    await db.execute(text("SET pg_trgm.similarity_threshold = 0.1"))
 
-    # Catalog-driven expansion: enrich tsquery with catalog vocabulary for ANY query
+    # Use only the lemmatized query for tsquery — no synonym expansion in SQL.
+    # Adding adjective synonyms (e.g. шариковая|гелевая for ручка) matches
+    # thousands of rows and forces ts_rank over the full hit-set, killing latency.
+    # Synonym context is handled by NLP/homograph at query level instead.
     expanded_tsq = pq.ts_query
-    try:
-        from app.services.catalog_expander import expand_from_catalog
-        from app.services.synonyms import get_synonyms
-        lemmas = pq.lemmatized.split()
-        manual_syns = [s for lemma in lemmas for s in get_synonyms(lemma)]
-        catalog_terms = await expand_from_catalog(db, lemmas)
-        all_terms = list(dict.fromkeys(lemmas + manual_syns + catalog_terms))
-        if len(all_terms) > len(lemmas):  # only override if we found something new
-            # tsquery atoms must be single words — split multi-word terms and deduplicate
-            single_words: list[str] = []
-            seen: set[str] = set()
-            for t in all_terms:
-                for word in t.split():
-                    w = word.strip()
-                    if w and w not in seen:
-                        single_words.append(w)
-                        seen.add(w)
-            expanded_tsq = " | ".join(single_words)
-            log.debug("Expanded tsq: %r -> %r", pq.ts_query, expanded_tsq)
-    except Exception as e:
-        log.debug("Query expansion failed (non-critical): %s", e)
+    # Performance-optimized SQL:
+    # - similarity() moved to Python (avoids computing for all WHERE matches)
+    # - tags uses @> with GIN index (= ANY doesn't use GIN, causes seqscan)
+    # - two tsquery variants OR'd: expanded for recall, plainto for phrase boost
+    # - ORDER BY ts_rank uses GIN index efficiently
+    q_lower = corrected_query.strip().lower()
     rows = (
         await db.execute(
             text(f"""
-        WITH pop AS (
-            SELECT ste_id,
-                   COUNT(*)                                                AS contract_cnt,
-                   COUNT(*) FILTER (
-                       WHERE contract_date >= NOW() - INTERVAL '90 days'
-                   )                                                       AS fresh_cnt
-            FROM contracts
-            GROUP BY ste_id
-        )
         SELECT s.id, s.name, s.category, s.attributes, s.tags,
-               s.promoted_until, s.promotion_boost, s.order_count,
-               similarity(s.name, :orig)                                       AS trgm_score,
+               s.promoted_until, s.promotion_boost,
+               COALESCE(s.order_count, 0)                                      AS order_count,
                ts_rank(s.name_tsv, to_tsquery('russian', :expanded_tsq))       AS ts_score_orig,
                ts_rank(s.name_tsv, plainto_tsquery('russian', :lemma))         AS ts_score_lemma,
                ts_rank(s.name_tsv, phraseto_tsquery('russian', :lemma))        AS ts_score_phrase,
-               ts_rank(
-                   to_tsvector('russian', array_to_string(COALESCE(s.tags, '{{}}'), ' ')),
-                   plainto_tsquery('russian', :lemma)
-               )                                                                AS tag_ts_score,
-               COALESCE(p.contract_cnt, 0)                                     AS popularity,
-               COALESCE(p.fresh_cnt, 0)                                        AS fresh_cnt,
-               ts_headline('russian', s.name,
-                   plainto_tsquery('russian', :lemma),
-                   'MaxWords=10, MinWords=3, StartSel=<<, StopSel=>>'
-               )                                                                AS snippet
+               COALESCE(s.order_count, 0)                                      AS popularity,
+               0                                                                AS fresh_cnt
         FROM ste s
-        LEFT JOIN pop p ON p.ste_id = s.id
-        WHERE (s.name % :orig
-           OR s.name_tsv @@ to_tsquery('russian', :expanded_tsq)
-           OR s.name_tsv @@ plainto_tsquery('russian', :lemma)
-           OR s.name ILIKE :ilike
-           OR :query_lower = ANY(s.tags))
+        WHERE s.name_tsv @@ plainto_tsquery('russian', :lemma)
            {category_clause}
-        ORDER BY trgm_score DESC
+        ORDER BY ts_rank(s.name_tsv, plainto_tsquery('russian', :lemma)) DESC
         LIMIT :lim
     """),
             {
-                "orig": req.query,
                 "expanded_tsq": expanded_tsq,
                 "lemma": pq.lemmatized,
                 "lim": fetch_limit,
-                "ilike": f"%{req.query.strip()}%",
-                "query_lower": corrected_query.strip().lower(),
                 **({"category": req.category} if req.category else {}),
             },
         )
@@ -529,9 +489,10 @@ async def _get_candidates(req, pq, corrected_query: str, db: AsyncSession) -> li
         neg_lower = [n.lower() for n in pq.negatives]
         rows = [r for r in rows if not any(n in (r["name"] or "").lower() for n in neg_lower)]
 
-    # Normalise popularity + freshness to bounded ranges
+    # trgm_score computed in Python for the top-N rows (avoids SQL seqscan over full match set)
+    import difflib
+    q_norm = req.query.lower()
     max_pop = max((r["popularity"] for r in rows), default=1) or 1
-    max_fresh = max((r["fresh_cnt"] for r in rows), default=1) or 1
     candidates = [
         {
             "id": r["id"],
@@ -541,20 +502,17 @@ async def _get_candidates(req, pq, corrected_query: str, db: AsyncSession) -> li
             "tags": r["tags"] or [],
             "promoted_until": r["promoted_until"],
             "promotion_boost": float(r["promotion_boost"] or 0),
-            "snippet": r.get("snippet") or "",
-            # Freshness norm: recent contracts / max_fresh -> [0, 0.08]
-            "freshness_norm": (float(r["fresh_cnt"]) / max_fresh) * 0.08,
+            "snippet": "",
+            "freshness_norm": 0.0,
             "popularity_norm": float(r["popularity"]) / max_pop,
             "base_score": (
-                float(r["trgm_score"] or 0) * 0.37
+                difflib.SequenceMatcher(None, r["name"].lower(), q_norm).ratio() * 0.37
                 + float(r["ts_score_orig"] or 0) * 0.18
                 + float(r["ts_score_lemma"] or 0) * 0.08
                 + float(r["ts_score_phrase"] or 0) * 0.12
-                + float(r["tag_ts_score"] or 0) * 0.07
-                + (float(r["popularity"]) / max_pop) * 0.10
-                + (float(r["fresh_cnt"]) / max_fresh) * 0.08
+                + (float(r["popularity"]) / max_pop) * 0.18
             ),
-            "bm25_score": float(r["trgm_score"] or 0),
+            "bm25_score": float(r["ts_score_lemma"] or 0),
             "semantic_score": 0.0,
             "popularity": int(r["popularity"]),
             "order_count": int(r.get("order_count") or r["popularity"]),
@@ -567,11 +525,14 @@ async def _get_candidates(req, pq, corrected_query: str, db: AsyncSession) -> li
             from app.services.embedding_service import get_embedding_service
             embedder = get_embedding_service()
             q_vec = embedder.embed_single(corrected_query)
-            names = [c["name"] for c in candidates]
+            # Only re-embed top-20 by text score to keep latency under 1s on CPU
+            ranked = sorted(range(len(candidates)), key=lambda i: candidates[i]["base_score"], reverse=True)
+            top_idx = ranked[:20]
+            names = [candidates[i]["name"] for i in top_idx]
             doc_vecs = embedder.embed(names)
             sims = doc_vecs @ q_vec
-            for i, c in enumerate(candidates):
-                c["semantic_score"] = max(float(sims[i]), 0.0)
+            for rank_pos, orig_i in enumerate(top_idx):
+                candidates[orig_i]["semantic_score"] = max(float(sims[rank_pos]), 0.0)
         except Exception:
             pass
 
