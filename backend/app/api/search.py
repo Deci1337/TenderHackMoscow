@@ -275,6 +275,23 @@ async def _get_candidates(req, pq, corrected_query: str, db: AsyncSession) -> li
     category_clause = "AND s.category = :category" if req.category else ""
     is_phrase = len(corrected_query.split()) > 1
     await db.execute(text("SET pg_trgm.similarity_threshold = 0.1"))
+
+    # Catalog-driven expansion: enrich tsquery with catalog vocabulary for ANY query
+    expanded_tsq = pq.ts_query
+    try:
+        from app.services.catalog_expander import expand_from_catalog
+        from app.services.synonyms import get_synonyms
+        lemmas = pq.lemmatized.split()
+        manual_syns = [s for lemma in lemmas for s in get_synonyms(lemma)]
+        catalog_terms = await expand_from_catalog(db, lemmas)
+        all_terms = list(dict.fromkeys(lemmas + manual_syns + catalog_terms))
+        if len(all_terms) > len(lemmas):  # only override if we found something new
+            expanded_tsq = " | ".join(
+                t for t in all_terms if t and t.replace(" ", "")
+            )
+            log.debug("Expanded tsq: %r -> %r", pq.ts_query, expanded_tsq)
+    except Exception as e:
+        log.debug("Query expansion failed (non-critical): %s", e)
     rows = (
         await db.execute(
             text(f"""
@@ -285,7 +302,7 @@ async def _get_candidates(req, pq, corrected_query: str, db: AsyncSession) -> li
         )
         SELECT s.id, s.name, s.category, s.attributes,
                similarity(s.name, :orig)                                       AS trgm_score,
-               ts_rank(s.name_tsv, to_tsquery('russian', :tsq))                AS ts_score_orig,
+               ts_rank(s.name_tsv, to_tsquery('russian', :expanded_tsq))       AS ts_score_orig,
                ts_rank(s.name_tsv, plainto_tsquery('russian', :lemma))         AS ts_score_lemma,
                ts_rank(s.name_tsv, phraseto_tsquery('russian', :lemma))        AS ts_score_phrase,
                COALESCE(p.contract_cnt, 0)                                     AS popularity,
@@ -296,7 +313,7 @@ async def _get_candidates(req, pq, corrected_query: str, db: AsyncSession) -> li
         FROM ste s
         LEFT JOIN pop p ON p.ste_id = s.id
         WHERE (s.name % :orig
-           OR s.name_tsv @@ to_tsquery('russian', :tsq)
+           OR s.name_tsv @@ to_tsquery('russian', :expanded_tsq)
            OR s.name_tsv @@ plainto_tsquery('russian', :lemma)
            OR s.name ILIKE :ilike)
            {category_clause}
@@ -305,7 +322,7 @@ async def _get_candidates(req, pq, corrected_query: str, db: AsyncSession) -> li
     """),
             {
                 "orig": req.query,
-                "tsq": pq.ts_query,
+                "expanded_tsq": expanded_tsq,
                 "lemma": pq.lemmatized,
                 "lim": fetch_limit,
                 "ilike": f"%{req.query.strip()}%",
@@ -375,6 +392,56 @@ async def suggest(q: str = "", db: AsyncSession = Depends(get_db)):
     except Exception:
         log.exception("Suggest error")
         return {"suggestions": []}
+
+
+@router.get("/debug")
+async def debug_query(q: str, db: AsyncSession = Depends(get_db)):
+    """
+    Explain how any query is processed: lemmatization, synonyms,
+    transliteration, catalog expansion, negative terms.
+    Useful for testing and transparency — works with any arbitrary query.
+    """
+    from app.services.synonyms import get_synonyms
+    from app.services.catalog_expander import expand_from_catalog
+
+    pq = process_query(q)
+
+    # Manual synonyms from dictionary
+    manual_syns: list[str] = []
+    for lemma in pq.lemmatized.split():
+        manual_syns.extend(get_synonyms(lemma))
+
+    # Catalog-driven expansion
+    catalog_terms: list[str] = []
+    try:
+        catalog_terms = await expand_from_catalog(db, pq.lemmatized.split())
+    except Exception as e:
+        catalog_terms = [f"error: {e}"]
+
+    # Boilerplate stripping demo
+    from app.services.query_processor import strip_procurement_boilerplate
+    stripped = strip_procurement_boilerplate(q)
+
+    return {
+        "input": q,
+        "after_boilerplate_strip": stripped,
+        "after_transliteration": pq.original,
+        "lemmatized": pq.lemmatized,
+        "ts_query_base": pq.ts_query,
+        "negative_terms": pq.negatives,
+        "manual_synonyms": manual_syns,
+        "catalog_expansion": catalog_terms,
+        "final_ts_query": " | ".join(
+            dict.fromkeys(pq.lemmatized.split() + manual_syns + catalog_terms)
+        ),
+        "notes": {
+            "lemmatization": "generic — works for any Russian word via pymorphy3",
+            "synonyms": f"{len(manual_syns)} terms from manual dictionary (abbreviations/jargon)",
+            "catalog_expansion": f"{len(catalog_terms)} terms found via trigram similarity in product catalog",
+            "negative_queries": "generic — parses '-word' or 'не word' from any query",
+            "phrase_search": "generic — phraseto_tsquery works for any multi-word input",
+        }
+    }
 
 
 @router.get("/facets", response_model=FacetsResponse)

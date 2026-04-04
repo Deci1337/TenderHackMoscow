@@ -160,3 +160,18 @@ def expand_query(query: str) -> tuple[str, list[str]]:
 
     expanded = " ".join(expanded_parts)
     return expanded, expansions
+
+
+def get_synonyms(lemma: str) -> list[str]:
+    """
+    Return list of synonym terms for a single lemma.
+    Used by catalog_expander to merge manual + data-driven expansions.
+    """
+    result: list[str] = []
+    key = lemma.lower().strip()
+    if key in SYNONYM_MAP:
+        result.extend(SYNONYM_MAP[key][:3])
+    _build_reverse()
+    if key in _reverse_map:
+        result.append(_reverse_map[key])
+    return result
