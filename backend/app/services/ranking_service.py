@@ -133,8 +133,13 @@ class RankingService:
 
         scores = self.score_batch(features_batch)
 
+        purchased_boost = 2.0
         for i, r in enumerate(results):
-            r.final_score = float(scores[i])
+            s = float(scores[i])
+            is_purchased = features_batch[i, FEATURE_NAMES.index("is_previously_purchased")]
+            if is_purchased > 0.5:
+                s += purchased_boost
+            r.final_score = s
             if self._backend != "linear":
                 r.explanations.append(f"Ranked by {self._backend} model")
 

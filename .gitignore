@@ -9,12 +9,16 @@ __pycache__/
 .venv/
 .env
 
-# Data
-data/
+# Data (large files)
+*.npy
+*.csv
+!backend/app/data/catboost_ranker.cbm
+!backend/app/data/frequency_dict_ru.txt
+catboost_info/
 
 # Node
 node_modules/
 dist/
+*.tsbuildinfo
 
 .DS_Store
-*.csv

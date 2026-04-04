@@ -129,7 +129,7 @@ class PersonalizationService:
             return results
 
         settings = get_settings()
-        boost = settings.personalization_boost
+        boost = settings.PERSONALIZATION_BOOST
 
         for r in results:
             p_score = 0.0
@@ -152,7 +152,7 @@ class PersonalizationService:
                 reasons.append("Previously purchased item")
 
             if r.ste_id in ctx.negative_ste_ids:
-                p_score -= boost * settings.negative_signal_decay
+                p_score -= boost * settings.NEGATIVE_SIGNAL_DECAY
                 reasons.append("Ranked lower: you quickly returned from this item")
 
             r.personalization_score = p_score
@@ -165,15 +165,61 @@ class PersonalizationService:
     def get_profile_summary(self, customer_inn: str) -> dict:
         ctx = self._profiles.get(customer_inn)
         if not ctx:
-            return {"customer_inn": customer_inn, "status": "no_profile"}
+            return self._db_fallback_summary(customer_inn)
         top_cats = sorted(ctx.category_weights.items(), key=lambda x: -x[1])[:5]
         return {
             "customer_inn": customer_inn,
+            "status": "active",
             "top_categories": [{"category": k, "weight": round(v, 3)} for k, v in top_cats],
+            "total_categories": len(ctx.category_weights),
             "interaction_count": ctx.interaction_count,
+            "positive_items": len(ctx.positive_ste_ids),
             "negative_signals": len(ctx.negative_ste_ids),
             "session_clicks": len(ctx.session_clicks),
+            "has_embedding": ctx.profile_embedding is not None,
         }
+
+    @staticmethod
+    def _db_fallback_summary(customer_inn: str) -> dict:
+        """Try loading profile from DB when not in memory (cold start fallback)."""
+        try:
+            from app.database import SessionLocal
+            from app.models import Contract
+            from sqlalchemy import func, select
+            import asyncio
+
+            async def _load():
+                async with SessionLocal() as session:
+                    q = (
+                        select(
+                            func.count(Contract.id).label("cnt"),
+                            Contract.customer_region,
+                        )
+                        .where(Contract.customer_inn == customer_inn)
+                        .group_by(Contract.customer_region)
+                    )
+                    result = await session.execute(q)
+                    rows = result.all()
+                    if not rows:
+                        return None
+                    total = sum(r.cnt for r in rows)
+                    region = rows[0].customer_region if rows else None
+                    return {"total": total, "region": region}
+
+            loop = asyncio.get_event_loop()
+            if loop.is_running():
+                return {"customer_inn": customer_inn, "status": "no_profile"}
+            data = loop.run_until_complete(_load())
+            if data:
+                return {
+                    "customer_inn": customer_inn,
+                    "status": "db_fallback",
+                    "interaction_count": data["total"],
+                    "region": data["region"],
+                }
+        except Exception:
+            pass
+        return {"customer_inn": customer_inn, "status": "no_profile"}
 
 
 _personalization_service: PersonalizationService | None = None

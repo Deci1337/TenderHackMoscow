@@ -26,7 +26,7 @@ catboost>=1.2.2
 shap>=0.44.0
 
 # Embeddings (rubert-tiny2 — lightweight, CPU-friendly)
-sentence-transformers>=2.3.0
+transformers>=4.30.0
 torch>=2.1.0
 
 # Fast vector search

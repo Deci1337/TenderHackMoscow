@@ -1,4 +1,7 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import {
+  useCallback, useEffect, useRef, useState,
+  type CSSProperties, type FormEvent, type ReactNode,
+} from "react";
 import { api, STEResult, SearchResponse, CategoryFacet } from "./api/client";
 import {
   Search, LogOut, ChevronRight, ChevronDown, Loader2, PackageSearch,
@@ -18,7 +21,7 @@ const SORT_OPTIONS = [
   { value: "name", label: "По названию" },
   { value: "popularity", label: "По популярности" },
 ] as const;
-const BADGE_STYLES: Record<string, React.CSSProperties> = {
+const BADGE_STYLES: Record<string, CSSProperties> = {
   history: { background: "#E6F7F1", color: "#0D9B68" },
   category: { background: "#E5F4F5", color: "#167C85" },
   session: { background: "#FEF3EB", color: "#F67319" },
@@ -39,7 +42,7 @@ function Onboarding({ onDone }: { onDone: (u: User) => void }) {
   const [name, setName] = useState("");
   const [industry, setIndustry] = useState("");
 
-  function submit(e: React.FormEvent) {
+  function submit(e: FormEvent) {
     e.preventDefault();
     if (inn && industry) {
       api.onboard(inn, name, undefined, industry).catch(() => {});
@@ -415,7 +418,7 @@ function Main({ user, onLogout }: { user: User; onLogout: () => void }) {
 }
 
 /* ---- small reusable pieces ---- */
-function Btn({ onClick, color, children }: { onClick: () => void; color: string; children: React.ReactNode }) {
+function Btn({ onClick, color, children }: { onClick: () => void; color: string; children: ReactNode }) {
   return (
     <button onClick={onClick}
       style={{ background: "none", border: "none", color, fontSize: 12, fontWeight: 600, cursor: "pointer", padding: "4px 8px", borderRadius: 4, display: "flex", alignItems: "center", gap: 4 }}
@@ -425,7 +428,7 @@ function Btn({ onClick, color, children }: { onClick: () => void; color: string;
   );
 }
 
-function PgBtn({ disabled, onClick, children }: { disabled: boolean; onClick: () => void; children: React.ReactNode }) {
+function PgBtn({ disabled, onClick, children }: { disabled: boolean; onClick: () => void; children: ReactNode }) {
   return (
     <button disabled={disabled} onClick={onClick}
       style={{ padding: "8px 16px", border: "1px solid #D4DBE6", borderRadius: 4, background: "#fff", cursor: disabled ? "default" : "pointer", opacity: disabled ? 0.4 : 1, fontSize: 13 }}
@@ -433,7 +436,7 @@ function PgBtn({ disabled, onClick, children }: { disabled: boolean; onClick: ()
   );
 }
 
-function EmptyBox({ icon, title, subtitle, onPick }: { icon: React.ReactNode; title: string; subtitle: string; onPick: (q: string) => void }) {
+function EmptyBox({ icon, title, subtitle, onPick }: { icon: ReactNode; title: string; subtitle: string; onPick: (q: string) => void }) {
   return (
     <div style={{ textAlign: "center", padding: "60px 20px" }}>
       <div style={{ marginBottom: 12 }}>{icon}</div>
@@ -453,7 +456,7 @@ function EmptyBox({ icon, title, subtitle, onPick }: { icon: React.ReactNode; ti
 }
 
 function DetailModal({ item, onClose, trackAction }: { item: STEResult; onClose: () => void; trackAction: (id: number, a: string) => void }) {
-  const openedAt = React.useRef(Date.now());
+  const openedAt = useRef(Date.now());
 
   function handleClose() {
     const elapsed = Date.now() - openedAt.current;
