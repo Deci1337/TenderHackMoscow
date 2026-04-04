@@ -88,6 +88,57 @@ class ScoredSTE:
         return self.boost - self.penalty
 
 
+async def _apply_region_affinity(
+    db: AsyncSession,
+    user_inn: str,
+    candidate_ids: list[int],
+    scores: dict[int, ScoredSTE],
+) -> None:
+    """
+    Boost STE items that have historically been purchased by customers in the
+    same region as the current user.  Region is derived from the user's own
+    contracts (customer_region column).  No boost is applied when region is
+    unknown or if the user has no contracts at all.
+    """
+    if not candidate_ids:
+        return
+
+    region_row = (
+        await db.execute(text("""
+            SELECT customer_region
+            FROM contracts
+            WHERE customer_inn = :inn AND customer_region IS NOT NULL
+            GROUP BY customer_region
+            ORDER BY count(*) DESC
+            LIMIT 1
+        """), {"inn": user_inn})
+    ).fetchone()
+
+    if not region_row or not region_row[0]:
+        return
+
+    user_region: str = region_row[0]
+
+    rows = await db.execute(text("""
+        SELECT c.ste_id, count(*) AS regional_cnt
+        FROM contracts c
+        WHERE c.customer_region = :region
+          AND c.ste_id = ANY(:ids)
+        GROUP BY c.ste_id
+    """), {"region": user_region, "ids": candidate_ids})
+
+    for ste_id, regional_cnt in rows.all():
+        if ste_id not in scores:
+            continue
+        boost = min(0.15 + regional_cnt * 0.02, 0.35)
+        scores[ste_id].boost += boost
+        scores[ste_id].explanations.append({
+            "reason": f"Популярно в вашем регионе ({user_region})",
+            "factor": "region",
+            "weight": boost,
+        })
+
+
 async def get_user_boosts(
     db: AsyncSession,
     user_inn: str,
@@ -118,6 +169,8 @@ async def get_user_boosts(
     # Always apply mismatch penalty when user has declared interests
     await _apply_profile_mismatch_penalty(db, user_inn, candidate_ids, scores,
                                           fallback_interests=request_interests)
+
+    await _apply_region_affinity(db, user_inn, candidate_ids, scores)
 
     if session_id:
         await _apply_session_events(db, user_inn, session_id, candidate_ids, scores)

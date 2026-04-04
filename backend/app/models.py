@@ -1,8 +1,8 @@
 from datetime import date, datetime
 
 from pgvector.sqlalchemy import Vector
-from sqlalchemy import BigInteger, Date, Index, Numeric, Text, func
-from sqlalchemy.dialects.postgresql import JSONB, TSVECTOR
+from sqlalchemy import BigInteger, Date, DateTime, Index, Numeric, Text, func
+from sqlalchemy.dialects.postgresql import ARRAY, JSONB, TSVECTOR
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.config import settings
@@ -19,6 +19,14 @@ class STE(Base):
     attributes: Mapped[dict | None] = mapped_column(JSONB, default={})
     name_tsv: Mapped[str | None] = mapped_column(TSVECTOR)
     embedding = mapped_column(Vector(settings.EMBEDDING_DIM), nullable=True)
+
+    # Sprint 2 fields
+    tags: Mapped[list[str] | None] = mapped_column(ARRAY(Text), nullable=True, default=list)
+    description: Mapped[str | None] = mapped_column(Text, nullable=True)
+    promoted_until: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    promotion_boost: Mapped[float] = mapped_column(Numeric(5, 3), nullable=False, server_default="0.0")
+    creator_user_id: Mapped[str | None] = mapped_column(Text, nullable=True, index=True)
+    order_count: Mapped[int] = mapped_column(BigInteger, nullable=False, server_default="0")
 
     __table_args__ = (
         Index("ix_ste_name_tsv", "name_tsv", postgresql_using="gin"),

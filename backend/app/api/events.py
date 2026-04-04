@@ -53,8 +53,16 @@ async def log_event(event: EventCreate, db: AsyncSession = Depends(get_db)):
         if category and event.event_type in {"click", "view", "like"}:
             await record_category_click(event.user_inn, event.session_id, category)
 
+    # Persist like/dislike as long-lived Redis signals for ranking (TTL 7 days)
+    if event.event_type in {"like", "dislike"}:
+        try:
+            from app.services.session_index import record_like_dislike
+            await record_like_dislike(event.user_inn, event.ste_id, event.event_type)
+        except Exception:
+            pass
+
     # Flush strong signals (like / hide) to persistent cross-session profile immediately
-    if event.event_type in {"like", "hide", "bounce"} and event.session_id:
+    if event.event_type in {"like", "dislike", "hide", "bounce"} and event.session_id:
         try:
             from app.services.session_index import flush_to_profile
             await flush_to_profile(event.user_inn, event.session_id, db)

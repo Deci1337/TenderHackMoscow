@@ -11,6 +11,7 @@ from loguru import logger
 from sqlalchemy import text
 
 from app.api import events, products, search, users
+from app.api.analytics import router as analytics_router
 from app.config import settings
 from app.database import Base, async_session, engine
 
@@ -220,6 +221,7 @@ app.include_router(search.router, prefix=settings.API_V1_PREFIX)
 app.include_router(events.router, prefix=settings.API_V1_PREFIX)
 app.include_router(users.router, prefix=settings.API_V1_PREFIX)
 app.include_router(products.router, prefix=settings.API_V1_PREFIX)
+app.include_router(analytics_router, prefix=settings.API_V1_PREFIX)
 
 
 @app.get("/health")

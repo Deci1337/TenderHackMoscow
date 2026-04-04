@@ -247,6 +247,49 @@ async def get_momentum_boosts(
     return boosts
 
 
+async def record_like_dislike(user_inn: str, ste_id: int, action: str) -> None:
+    """Persist like or dislike as a scored Redis signal with 7-day TTL."""
+    ttl = 86400 * 7
+    try:
+        r = await get_redis()
+        if action == "like":
+            key = f"user:{user_inn}:likes"
+            await r.zincrby(key, 1.5, str(ste_id))
+            await r.expire(key, ttl)
+        elif action == "dislike":
+            key = f"user:{user_inn}:dislikes"
+            await r.zincrby(key, 1.0, str(ste_id))
+            await r.expire(key, ttl)
+        await r.aclose()
+    except Exception as e:
+        log.warning("Redis like/dislike record failed (non-critical): %s", e)
+
+
+async def get_like_dislike_boosts(user_inn: str, ste_ids: list[int]) -> dict[int, float]:
+    """
+    Returns {ste_id: score_delta} based on persistent like/dislike signals.
+    Likes give +1.5, dislikes give -1.5 per accumulated signal point.
+    """
+    if not ste_ids or not user_inn:
+        return {}
+    try:
+        r = await get_redis()
+        like_key = f"user:{user_inn}:likes"
+        dislike_key = f"user:{user_inn}:dislikes"
+        boosts: dict[int, float] = {}
+        for sid in ste_ids:
+            like_score = await r.zscore(like_key, str(sid)) or 0.0
+            dislike_score = await r.zscore(dislike_key, str(sid)) or 0.0
+            delta = like_score * 1.5 - dislike_score * 1.5
+            if delta != 0:
+                boosts[sid] = delta
+        await r.aclose()
+        return boosts
+    except Exception as e:
+        log.warning("Redis like/dislike read failed (non-critical): %s", e)
+        return {}
+
+
 async def get_session_change_reason(
     user_inn: str,
     session_id: str,

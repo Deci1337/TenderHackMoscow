@@ -7,11 +7,17 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.database import get_db
 from app.schemas import (
     CategoryFacet, FacetsResponse, PopularQueriesResponse, PopularQuery,
-    RankingExplanation, SearchRequest, SearchResponse, STEResult, SuggestResponse,
+    RankCheckResponse, RankingExplanation, SearchRequest, SearchResponse,
+    STEResult, SuggestResponse, ThinkingFactor, ThinkingResponse,
 )
 from app.services.personalization import get_user_boosts
+from app.services.query_intent import INTENT_STRATEGY, QueryIntent, detect_intent
 from app.services.query_processor import process_query
-from app.services.session_index import get_session_adjustments, get_session_change_reason
+from app.services.session_index import (
+    get_like_dislike_boosts,
+    get_session_adjustments,
+    get_session_change_reason,
+)
 
 log = logging.getLogger(__name__)
 router = APIRouter(prefix="/search", tags=["search"])
@@ -56,6 +62,10 @@ async def search_ste(req: SearchRequest, db: AsyncSession = Depends(get_db)):
         pass
 
     pq = process_query(corrected_query)
+
+    # --- Query intent detection ---
+    intent = detect_intent(corrected_query)
+    strategy = INTENT_STRATEGY[intent]
 
     # --- Stage 2: Candidate retrieval with zero-result cascade ---
     candidates = await _get_candidates(req, pq, corrected_query, db)
@@ -137,6 +147,30 @@ async def search_ste(req: SearchRequest, db: AsyncSession = Depends(get_db)):
             for sid, boost in momentum.items():
                 session_deltas[sid] = session_deltas.get(sid, 0.0) + boost
 
+    # --- Stage 4b: Like/Dislike persistent signals ---
+    if req.user_inn:
+        like_boosts = await get_like_dislike_boosts(req.user_inn, candidate_ids)
+        for sid, delta in like_boosts.items():
+            session_deltas[sid] = session_deltas.get(sid, 0.0) + delta
+
+    # Apply intent-driven multipliers to base scores
+    history_mult = strategy.get("history_weight_multiplier", 1.0)
+    pop_mult = strategy.get("popularity_weight_multiplier", 1.0)
+    if history_mult != 1.0 or pop_mult != 1.0:
+        for sid in list(boosts):
+            b = boosts[sid]
+            # History factor: scale boosts from contract/category factors
+            if history_mult != 1.0:
+                for ex in b.explanations:
+                    if ex.get("factor") in ("history", "category"):
+                        ex["weight"] = float(ex["weight"]) * history_mult
+                b.boost = sum(e["weight"] for e in b.explanations if float(e["weight"]) > 0)
+        if pop_mult != 1.0:
+            for c in candidates:
+                c["base_score"] = (
+                    c["base_score"] * 0.7 + c.get("popularity_norm", 0.0) * pop_mult * 0.3
+                )
+
     # --- Stage 5: CatBoost LTR re-rank ---
     scored = _apply_catboost_rerank(candidates, boosts, session_deltas, req.user_inn, corrected_query)
 
@@ -154,6 +188,9 @@ async def search_ste(req: SearchRequest, db: AsyncSession = Depends(get_db)):
     page_ids = [sid for sid, _, _, _ in page]
     price_data = await get_price_info(db, page_ids)
 
+    from datetime import datetime, timezone
+    _now_resp = datetime.now(timezone.utc)
+
     results = [
         STEResult(
             id=sid,
@@ -165,6 +202,12 @@ async def search_ste(req: SearchRequest, db: AsyncSession = Depends(get_db)):
             snippet=row.get("snippet") or None,
             avg_price=price_data.get(sid, {}).get("avg_price"),
             price_trend=price_data.get(sid, {}).get("price_trend"),
+            tags=row.get("tags") or [],
+            is_promoted=(
+                row.get("promoted_until") is not None
+                and row["promoted_until"] > _now_resp
+            ),
+            promotion_boost=float(row.get("promotion_boost") or 0),
         )
         for sid, score, row, explanations in page
     ]
@@ -288,6 +331,9 @@ def _apply_catboost_rerank(
         cb_max = max(cb_vals) if cb_vals else 1.0
         cb_range = (cb_max - cb_min) if cb_max > cb_min else 1.0
 
+        from datetime import datetime, timezone
+        _now_cb = datetime.now(timezone.utc)
+
         scored = []
         for c in candidates:
             sid = c["id"]
@@ -301,11 +347,30 @@ def _apply_catboost_rerank(
             # enough to demote mismatched items below relevant ones with the same text score.
             combined = 0.40 * base + 0.10 * cb_norm + 0.50 * nm + boost_obj.net_score * 0.20 + session_d * 0.05
 
-            scored.append((sid, combined, c, boost_obj.explanations))
+            explanations = list(boost_obj.explanations)
+
+            # Promotion boost (Task 4)
+            promoted_until = c.get("promoted_until")
+            if promoted_until and promoted_until > _now_cb:
+                promotion_signal = float(c.get("promotion_boost") or 2.0)
+                combined += promotion_signal
+                explanations.append({
+                    "reason": "Продвигается",
+                    "factor": "promotion",
+                    "weight": promotion_signal,
+                })
+
+            # Popularity tiebreaker (Task 4)
+            combined += min(c.get("order_count") or 0, 10000) / 10000 * 0.1
+
+            scored.append((sid, combined, c, explanations))
         return scored
 
     except Exception as e:
         log.debug("CatBoost rerank unavailable, using base scores: %s", e)
+
+    from datetime import datetime, timezone
+    _now = datetime.now(timezone.utc)
 
     scored = []
     for c in candidates:
@@ -314,8 +379,25 @@ def _apply_catboost_rerank(
         boost_obj = boosts[sid]
         session_d = session_deltas.get(sid, 0.0)
         nm = _name_match_bonus(c["name"], query)
-        total = 0.40 * base + 0.50 * nm + boost_obj.net_score * 0.20 + session_d * 0.05
-        scored.append((sid, total, c, boost_obj.explanations))
+        total = 0.40 * base + 0.50 * nm + boost_obj.net_score * 0.02 + session_d * 0.01
+
+        explanations = list(boost_obj.explanations)
+
+        # Promotion boost (Task 4)
+        promoted_until = c.get("promoted_until")
+        if promoted_until and promoted_until > _now:
+            promotion_signal = float(c.get("promotion_boost") or 2.0)
+            total += promotion_signal
+            explanations.append({
+                "reason": "Продвигается",
+                "factor": "promotion",
+                "weight": promotion_signal,
+            })
+
+        # Popularity tiebreaker (Task 4)
+        total += min(c.get("order_count") or 0, 10000) / 10000 * 0.1
+
+        scored.append((sid, total, c, explanations))
     return scored
 
 
@@ -340,9 +422,15 @@ async def _get_candidates(req, pq, corrected_query: str, db: AsyncSession) -> li
                     "name": r.name,
                     "category": r.category,
                     "attributes": r.attributes,
+                    "tags": [],
+                    "promoted_until": None,
+                    "promotion_boost": 0.0,
+                    "snippet": "",
                     "base_score": float(r.final_score),
                     "bm25_score": r.bm25_score,
                     "semantic_score": r.semantic_score,
+                    "popularity": 0,
+                    "order_count": 0,
                 }
                 for r in ml_results
             ]
@@ -383,16 +471,26 @@ async def _get_candidates(req, pq, corrected_query: str, db: AsyncSession) -> li
         await db.execute(
             text(f"""
         WITH pop AS (
-            SELECT ste_id, COUNT(*) AS contract_cnt
+            SELECT ste_id,
+                   COUNT(*)                                                AS contract_cnt,
+                   COUNT(*) FILTER (
+                       WHERE contract_date >= NOW() - INTERVAL '90 days'
+                   )                                                       AS fresh_cnt
             FROM contracts
             GROUP BY ste_id
         )
-        SELECT s.id, s.name, s.category, s.attributes,
+        SELECT s.id, s.name, s.category, s.attributes, s.tags,
+               s.promoted_until, s.promotion_boost, s.order_count,
                similarity(s.name, :orig)                                       AS trgm_score,
                ts_rank(s.name_tsv, to_tsquery('russian', :expanded_tsq))       AS ts_score_orig,
                ts_rank(s.name_tsv, plainto_tsquery('russian', :lemma))         AS ts_score_lemma,
                ts_rank(s.name_tsv, phraseto_tsquery('russian', :lemma))        AS ts_score_phrase,
+               ts_rank(
+                   to_tsvector('russian', array_to_string(COALESCE(s.tags, '{{}}'), ' ')),
+                   plainto_tsquery('russian', :lemma)
+               )                                                                AS tag_ts_score,
                COALESCE(p.contract_cnt, 0)                                     AS popularity,
+               COALESCE(p.fresh_cnt, 0)                                        AS fresh_cnt,
                ts_headline('russian', s.name,
                    plainto_tsquery('russian', :lemma),
                    'MaxWords=10, MinWords=3, StartSel=<<, StopSel=>>'
@@ -402,7 +500,8 @@ async def _get_candidates(req, pq, corrected_query: str, db: AsyncSession) -> li
         WHERE (s.name % :orig
            OR s.name_tsv @@ to_tsquery('russian', :expanded_tsq)
            OR s.name_tsv @@ plainto_tsquery('russian', :lemma)
-           OR s.name ILIKE :ilike)
+           OR s.name ILIKE :ilike
+           OR :query_lower = ANY(s.tags))
            {category_clause}
         ORDER BY trgm_score DESC
         LIMIT :lim
@@ -413,6 +512,7 @@ async def _get_candidates(req, pq, corrected_query: str, db: AsyncSession) -> li
                 "lemma": pq.lemmatized,
                 "lim": fetch_limit,
                 "ilike": f"%{req.query.strip()}%",
+                "query_lower": corrected_query.strip().lower(),
                 **({"category": req.category} if req.category else {}),
             },
         )
@@ -424,25 +524,35 @@ async def _get_candidates(req, pq, corrected_query: str, db: AsyncSession) -> li
         neg_lower = [n.lower() for n in pq.negatives]
         rows = [r for r in rows if not any(n in (r["name"] or "").lower() for n in neg_lower)]
 
-    # Normalise popularity to [0, 0.15] so it nudges but doesn't dominate text score
+    # Normalise popularity + freshness to bounded ranges
     max_pop = max((r["popularity"] for r in rows), default=1) or 1
+    max_fresh = max((r["fresh_cnt"] for r in rows), default=1) or 1
     candidates = [
         {
             "id": r["id"],
             "name": r["name"],
             "category": r["category"],
             "attributes": r["attributes"],
-            "snippet": r.get("snippet") or "",  # ts_headline highlighted excerpt
+            "tags": r["tags"] or [],
+            "promoted_until": r["promoted_until"],
+            "promotion_boost": float(r["promotion_boost"] or 0),
+            "snippet": r.get("snippet") or "",
+            # Freshness norm: recent contracts / max_fresh -> [0, 0.08]
+            "freshness_norm": (float(r["fresh_cnt"]) / max_fresh) * 0.08,
+            "popularity_norm": float(r["popularity"]) / max_pop,
             "base_score": (
-                float(r["trgm_score"] or 0) * 0.40
-                + float(r["ts_score_orig"] or 0) * 0.20
-                + float(r["ts_score_lemma"] or 0) * 0.10
-                + float(r["ts_score_phrase"] or 0) * 0.15   # phrase proximity bonus
-                + (float(r["popularity"]) / max_pop) * 0.15  # popularity signal
+                float(r["trgm_score"] or 0) * 0.37
+                + float(r["ts_score_orig"] or 0) * 0.18
+                + float(r["ts_score_lemma"] or 0) * 0.08
+                + float(r["ts_score_phrase"] or 0) * 0.12
+                + float(r["tag_ts_score"] or 0) * 0.07
+                + (float(r["popularity"]) / max_pop) * 0.10
+                + (float(r["fresh_cnt"]) / max_fresh) * 0.08
             ),
             "bm25_score": float(r["trgm_score"] or 0),
             "semantic_score": 0.0,
             "popularity": int(r["popularity"]),
+            "order_count": int(r.get("order_count") or r["popularity"]),
         }
         for r in rows
     ]
@@ -461,6 +571,141 @@ async def _get_candidates(req, pq, corrected_query: str, db: AsyncSession) -> li
             pass
 
     return candidates
+
+
+@router.get("/thinking/{ste_id}", response_model=ThinkingResponse)
+async def get_thinking(
+    ste_id: int,
+    query: str,
+    user_inn: str = "",
+    db: AsyncSession = Depends(get_db),
+):
+    """Explain ranking decision for a specific STE item and query."""
+    from datetime import datetime, timezone
+
+    from fastapi import HTTPException
+
+    from app.services.nlp_service import get_nlp_service
+
+    nlp = get_nlp_service()
+    query_data = nlp.process_query(query)
+    pq = process_query(query_data.get("corrected", query))
+
+    row = (
+        await db.execute(
+            text("""
+                SELECT s.id, s.name, s.category, s.tags, s.promoted_until,
+                       s.promotion_boost, s.order_count,
+                       COALESCE(sp.contract_cnt, 0) AS contract_cnt,
+                       ts_rank(s.name_tsv, plainto_tsquery('russian', :lemma)) AS ts_score,
+                       similarity(s.name, :orig) AS trgm_score
+                FROM ste s
+                LEFT JOIN ste_popularity sp ON sp.ste_id = s.id
+                WHERE s.id = :ste_id
+            """),
+            {"ste_id": ste_id, "lemma": pq.lemmatized, "orig": query},
+        )
+    ).fetchone()
+
+    if not row:
+        raise HTTPException(status_code=404, detail="STE not found")
+
+    now = datetime.now(timezone.utc)
+    is_promoted = row.promoted_until is not None and row.promoted_until > now
+
+    factors = [
+        ThinkingFactor(name="Совпадение по tsvector", score=round(float(row.ts_score), 4), type="text"),
+        ThinkingFactor(name="Триграмное сходство", score=round(float(row.trgm_score), 4), type="text"),
+        ThinkingFactor(name="Популярность (кол-во контрактов)", score=int(row.contract_cnt), type="popularity"),
+    ]
+    if is_promoted:
+        factors.append(
+            ThinkingFactor(
+                name="Активное продвижение",
+                score=float(row.promotion_boost or 2.0),
+                type="promotion",
+            )
+        )
+
+    return ThinkingResponse(
+        ste_id=ste_id,
+        name=row.name,
+        query=query,
+        corrected_query=query_data.get("corrected", query),
+        applied_synonyms=query_data.get("applied_synonyms", []),
+        was_corrected=query_data.get("was_corrected", False),
+        factors=factors,
+        is_promoted=is_promoted,
+        promotion_boost=float(row.promotion_boost or 0),
+        tags=row.tags or [],
+    )
+
+
+@router.get("/rank-check", response_model=RankCheckResponse)
+async def rank_check(
+    query: str,
+    product_id: int,
+    user_inn: str = "",
+    db: AsyncSession = Depends(get_db),
+):
+    """
+    Return the position and score of a specific product for a given query.
+    Useful for suppliers to see how well their product ranks before promotion.
+    """
+    from app.schemas import SearchRequest
+
+    intent = detect_intent(query)
+    strategy = INTENT_STRATEGY[intent]
+
+    req = SearchRequest(
+        query=query,
+        user_inn=user_inn,
+        limit=100,
+        offset=0,
+    )
+    pq = process_query(query)
+    candidates = await _get_candidates(req, pq, query, db)
+    if not candidates:
+        return RankCheckResponse(
+            product_id=product_id,
+            query=query,
+            position=None,
+            score=None,
+            intent=intent.value,
+            intent_description=strategy.get("description", ""),
+            is_promoted=False,
+        )
+
+    boosts = await get_user_boosts(db, user_inn, None, [c["id"] for c in candidates])
+    scored = _apply_catboost_rerank(candidates, boosts, {}, user_inn, query)
+    scored.sort(key=lambda x: x[1], reverse=True)
+
+    for pos, (sid, score, row, _) in enumerate(scored, start=1):
+        if sid == product_id:
+            from datetime import datetime, timezone
+            is_promo = (
+                row.get("promoted_until") is not None
+                and row["promoted_until"] > datetime.now(timezone.utc)
+            )
+            return RankCheckResponse(
+                product_id=product_id,
+                query=query,
+                position=pos,
+                score=round(score, 4),
+                intent=intent.value,
+                intent_description=strategy.get("description", ""),
+                is_promoted=is_promo,
+            )
+
+    return RankCheckResponse(
+        product_id=product_id,
+        query=query,
+        position=None,
+        score=None,
+        intent=intent.value,
+        intent_description=strategy.get("description", ""),
+        is_promoted=False,
+    )
 
 
 @router.get("/suggest")
