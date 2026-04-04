@@ -33,8 +33,8 @@ class RankingService:
         self._catboost_model = None
         self._jax_ranker = None
         self._feature_weights = np.array([
-            0.25, 0.30, 0.10, 0.08, 0.10,
-            0.05, 0.02, 0.05, -0.10, 0.02, 0.03,
+            0.40, 0.40, 0.03, 0.02, 0.03,
+            0.03, 0.01, 0.02, -0.05, 0.01, 0.01,
         ])
         self._backend = "linear"
         self._try_load_models()
@@ -133,7 +133,7 @@ class RankingService:
 
         scores = self.score_batch(features_batch)
 
-        purchased_boost = 2.0
+        purchased_boost = 0.1
         for i, r in enumerate(results):
             s = float(scores[i])
             is_purchased = features_batch[i, FEATURE_NAMES.index("is_previously_purchased")]

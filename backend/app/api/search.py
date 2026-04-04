@@ -124,7 +124,7 @@ async def search_ste(req: SearchRequest, db: AsyncSession = Depends(get_db)):
                 session_deltas[sid] = session_deltas.get(sid, 0.0) + boost
 
     # --- Stage 5: CatBoost LTR re-rank ---
-    scored = _apply_catboost_rerank(candidates, boosts, session_deltas, req.user_inn)
+    scored = _apply_catboost_rerank(candidates, boosts, session_deltas, req.user_inn, corrected_query)
 
     if req.sort_by == "name":
         scored.sort(key=lambda x: x[2]["name"] or "")
@@ -168,11 +168,65 @@ async def search_ste(req: SearchRequest, db: AsyncSession = Depends(get_db)):
     )
 
 
+def _single_token_name_bonus(nl: str, token: str) -> float:
+    """
+    Match one query token to product name. Strong weight only when the token
+    hits the leading product words (title), not a related noun deep in the
+    description (e.g. «карандаш» vs «карандашей» in a sharpener title).
+    """
+    if not token:
+        return 0.0
+    words = nl.split()
+    if not words:
+        return 0.0
+    if nl.startswith(token + " ") or nl == token:
+        return 1.0
+    fw = words[0]
+    if fw == token:
+        return 1.0
+    if fw.startswith(token) and len(fw) <= len(token) + 2:
+        return 0.95
+    if token in fw and len(token) >= 3:
+        return 0.88
+    if len(words) >= 2:
+        w = words[1]
+        if w == token or (w.startswith(token) and len(w) <= len(token) + 2):
+            return 0.42
+    if len(words) >= 3:
+        w = words[2]
+        if w == token or (w.startswith(token) and len(w) <= len(token) + 2):
+            return 0.28
+    for w in words[3:14]:
+        if w == token or (w.startswith(token) and len(w) <= len(token) + 2):
+            return 0.14
+    if token in nl:
+        return 0.06
+    return 0.0
+
+
+def _name_match_bonus(name: str, query: str) -> float:
+    """
+    Bonus when query text matches item name. Multi-word queries use the mean
+    per-token bonus so «бумага а4» matches names that contain both concepts.
+    """
+    nl = " ".join(name.lower().split())
+    ql = " ".join(query.lower().split())
+    if not ql:
+        return 0.0
+    if ql in nl:
+        return 1.0
+    tokens = [t for t in ql.split() if len(t) >= 2]
+    if len(tokens) <= 1:
+        return _single_token_name_bonus(nl, ql)
+    return sum(_single_token_name_bonus(nl, t) for t in tokens) / len(tokens)
+
+
 def _apply_catboost_rerank(
     candidates: list[dict],
     boosts: dict,
     session_deltas: dict[int, float],
     user_inn: str,
+    query: str = "",
 ) -> list[tuple]:
     """
     Apply CatBoost reranking to candidates. Falls back to linear scoring
@@ -215,6 +269,11 @@ def _apply_catboost_rerank(
         reranked = ranker.rerank(sr_list, user_ctx, ste_embeddings=ste_emb_map)
         reranked_map = {r.ste_id: r.final_score for r in reranked}
 
+        cb_vals = [reranked_map.get(c["id"], 0.0) for c in candidates]
+        cb_min = min(cb_vals) if cb_vals else 0.0
+        cb_max = max(cb_vals) if cb_vals else 1.0
+        cb_range = (cb_max - cb_min) if cb_max > cb_min else 1.0
+
         scored = []
         for c in candidates:
             sid = c["id"]
@@ -222,8 +281,9 @@ def _apply_catboost_rerank(
             boost_obj = boosts[sid]
             session_d = session_deltas.get(sid, 0.0)
 
-            catboost_score = reranked_map.get(sid, base)
-            combined = catboost_score + boost_obj.net_score * 0.5 + session_d * 0.3
+            cb_norm = (reranked_map.get(sid, 0.0) - cb_min) / cb_range
+            nm = _name_match_bonus(c["name"], query)
+            combined = 0.40 * base + 0.10 * cb_norm + 0.50 * nm + boost_obj.net_score * 0.02 + session_d * 0.01
 
             scored.append((sid, combined, c, boost_obj.explanations))
         return scored
@@ -237,7 +297,8 @@ def _apply_catboost_rerank(
         base = c["base_score"]
         boost_obj = boosts[sid]
         session_d = session_deltas.get(sid, 0.0)
-        total = base + boost_obj.net_score + session_d
+        nm = _name_match_bonus(c["name"], query)
+        total = 0.40 * base + 0.50 * nm + boost_obj.net_score * 0.02 + session_d * 0.01
         scored.append((sid, total, c, boost_obj.explanations))
     return scored
 
@@ -254,7 +315,9 @@ async def _get_candidates(req, pq, corrected_query: str, db: AsyncSession) -> li
         if searcher._initialized:
             nlp = get_nlp_service()
             query_data = nlp.process_query(req.query)
-            ml_results = searcher.search(query_data, top_k=req.limit * 3)
+            qtok = [w for w in corrected_query.split() if len(w) >= 2]
+            pool = 8 if len(qtok) >= 2 else 3
+            ml_results = searcher.search(query_data, top_k=req.limit * pool)
             return [
                 {
                     "id": r.ste_id,
@@ -271,7 +334,8 @@ async def _get_candidates(req, pq, corrected_query: str, db: AsyncSession) -> li
         log.debug("ML search unavailable, falling back to SQL: %s", e)
 
     # SQL fallback
-    fetch_limit = req.limit * 3
+    qtok = [w for w in corrected_query.split() if len(w) >= 2]
+    fetch_limit = req.limit * (8 if len(qtok) >= 2 else 3)
     category_clause = "AND s.category = :category" if req.category else ""
     is_phrase = len(corrected_query.split()) > 1
     await db.execute(text("SET pg_trgm.similarity_threshold = 0.1"))
