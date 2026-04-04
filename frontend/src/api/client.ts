@@ -66,6 +66,30 @@ export interface PopularQueriesResponse {
   queries: PopularQuery[];
 }
 
+export interface CreateProductRequest {
+  name: string;
+  category: string;
+  tags: string[];
+  description: string;
+  creator_user_id: string;
+}
+
+export interface MyProduct {
+  id: number;
+  name: string;
+  category: string | null;
+  tags: string[];
+  order_count: number;
+  is_promoted: boolean;
+  promoted_until: string | null;
+  promotion_boost: number;
+}
+
+export interface PromoteRequest {
+  days: number;
+  creator_user_id: string;
+}
+
 export const api = {
   search(
     query: string,
@@ -122,5 +146,23 @@ export const api = {
 
   getUser(inn: string) {
     return request<UserProfile>(`/users/${inn}`);
+  },
+
+  createProduct(data: CreateProductRequest) {
+    return request<MyProduct>("/products", {
+      method: "POST",
+      body: JSON.stringify(data),
+    });
+  },
+
+  getMyProducts(userId: string) {
+    return request<MyProduct[]>(`/products?creator_user_id=${encodeURIComponent(userId)}`);
+  },
+
+  activatePromotion(productId: number, data: PromoteRequest) {
+    return request<MyProduct>(`/products/${productId}/promote`, {
+      method: "POST",
+      body: JSON.stringify(data),
+    });
   },
 };

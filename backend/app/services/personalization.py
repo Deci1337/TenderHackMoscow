@@ -16,18 +16,28 @@ from app.models import Contract, Event, UserProfile
 
 # Map declared interest -> STE categories that are RELEVANT (get boost)
 INDUSTRY_CATEGORIES: dict[str, list[str]] = {
-    "Строительство":        ["Стройматериалы", "Электротехника", "Инструменты", "ЖКХ", "Сантехника", "Металлопрокат"],
-    "Образование":          ["Образование", "Канцелярские товары", "Мебель школьная", "Спортивный инвентарь"],
+    "Строительство":        [
+        "Стройматериалы", "Электротехника", "Инструменты", "ЖКХ", "Сантехника", "Металлопрокат",
+        # Hardware/fittings relevant to construction — includes door handles, hinges, locks
+        "Фурнитура для дверей металлическая", "Фурнитура для окон металлическая",
+        "Фурнитура для мебели металлическая", "Замки дверные", "Комплектующие для дверей",
+        "Щетки строительные", "Инструменты для малярных работ",
+    ],
+    "Образование":          ["Образование", "Канцелярские товары", "Ручки канцелярские",
+                             "Наборы ручек канцелярских", "Мебель школьная", "Спортивный инвентарь"],
     "Здравоохранение":      ["Медицинские товары", "Медицинское оборудование", "Фармацевтика", "Хозяйственные товары"],
     "IT и связь":           ["IT-оборудование", "Оргтехника", "Электротехника", "Программное обеспечение"],
-    "ЖКХ":                  ["ЖКХ", "Электротехника", "Стройматериалы", "Сантехника", "Инструменты"],
+    "ЖКХ":                  ["ЖКХ", "Электротехника", "Стройматериалы", "Сантехника", "Инструменты",
+                             "Фурнитура для дверей металлическая", "Замки дверные"],
     "Промышленность":       ["Стройматериалы", "IT-оборудование", "Инструменты", "Электротехника", "Металлопрокат"],
     "Культура и спорт":     ["Спортивный инвентарь", "Образование", "Канцелярские товары", "Мебель"],
     "Транспорт":            ["IT-оборудование", "Электротехника", "Запчасти"],
-    "Канцелярские товары":  ["Канцелярские товары", "Офисная мебель"],
+    "Канцелярские товары":  ["Канцелярские товары", "Ручки канцелярские", "Наборы ручек канцелярских",
+                             "Стержни для ручек канцелярских", "Офисная мебель"],
     "Медицинские товары":   ["Медицинские товары", "Медицинское оборудование", "Фармацевтика"],
     "IT-оборудование":      ["IT-оборудование", "Оргтехника", "Электротехника"],
-    "Стройматериалы":       ["Стройматериалы", "Инструменты", "Электротехника", "Сантехника"],
+    "Стройматериалы":       ["Стройматериалы", "Инструменты", "Электротехника", "Сантехника",
+                             "Фурнитура для дверей металлическая", "Замки дверные"],
     "Электротехника":       ["Электротехника", "IT-оборудование", "Инструменты"],
     "Хозяйственные товары": ["Хозяйственные товары", "Канцелярские товары"],
     "Другое":               [],
@@ -42,18 +52,27 @@ UNIVERSAL_CATEGORIES: frozenset[str] = frozenset({
 # Categories that are domain-specific: maps category -> which interests consider it relevant
 # Items in these categories will be penalised if the user's interests don't cover them
 DOMAIN_SPECIFIC_CATEGORIES: dict[str, list[str]] = {
-    "Медицинские товары":       ["Здравоохранение", "Медицинские товары"],
-    "Медицинское оборудование": ["Здравоохранение", "Медицинские товары"],
-    "Фармацевтика":             ["Здравоохранение", "Медицинские товары"],
-    "Стройматериалы":           ["Строительство", "ЖКХ", "Промышленность", "Стройматериалы"],
-    "Сантехника":               ["Строительство", "ЖКХ"],
-    "Металлопрокат":            ["Строительство", "Промышленность"],
-    "Инструменты":              ["Строительство", "ЖКХ", "Промышленность"],
-    "Образование":              ["Образование", "Культура и спорт"],
-    "Мебель школьная":          ["Образование"],
-    "Спортивный инвентарь":     ["Культура и спорт", "Образование"],
-    "Запчасти":                 ["Транспорт", "Промышленность"],
-    "Программное обеспечение":  ["IT и связь", "IT-оборудование"],
+    "Медицинские товары":                   ["Здравоохранение", "Медицинские товары"],
+    "Медицинское оборудование":             ["Здравоохранение", "Медицинские товары"],
+    "Фармацевтика":                         ["Здравоохранение", "Медицинские товары"],
+    "Стройматериалы":                       ["Строительство", "ЖКХ", "Промышленность", "Стройматериалы"],
+    "Сантехника":                           ["Строительство", "ЖКХ"],
+    "Металлопрокат":                        ["Строительство", "Промышленность"],
+    "Инструменты":                          ["Строительство", "ЖКХ", "Промышленность"],
+    "Образование":                          ["Образование", "Культура и спорт"],
+    "Мебель школьная":                      ["Образование"],
+    "Спортивный инвентарь":                 ["Культура и спорт", "Образование"],
+    "Запчасти":                             ["Транспорт", "Промышленность"],
+    "Программное обеспечение":              ["IT и связь", "IT-оборудование"],
+    # Stationery pens are domain-specific for office/education users, NOT for construction
+    "Ручки канцелярские":                   ["Образование", "Канцелярские товары", "Культура и спорт", "IT и связь"],
+    "Наборы ручек канцелярских":            ["Образование", "Канцелярские товары", "Культура и спорт"],
+    "Стержни для ручек канцелярских":       ["Образование", "Канцелярские товары"],
+    # Door/window hardware is domain-specific for construction users
+    "Фурнитура для дверей металлическая":   ["Строительство", "ЖКХ", "Стройматериалы"],
+    "Фурнитура для окон металлическая":     ["Строительство", "ЖКХ", "Стройматериалы"],
+    "Замки дверные":                        ["Строительство", "ЖКХ", "Стройматериалы"],
+    "Комплектующие для дверей":             ["Строительство", "ЖКХ", "Стройматериалы"],
 }
 
 
@@ -74,6 +93,7 @@ async def get_user_boosts(
     user_inn: str,
     session_id: str | None,
     candidate_ids: list[int],
+    request_interests: list[str] | None = None,
 ) -> dict[int, ScoredSTE]:
     """
     Return per-STE boost/penalty scores and explanation tags for the given user.
@@ -92,10 +112,12 @@ async def get_user_boosts(
         await _apply_category_affinity(db, user_inn, candidate_ids, scores)
     else:
         # Cold-start user: use declared industry instead of non-existent history
-        await _apply_industry_affinity(db, user_inn, candidate_ids, scores)
+        await _apply_industry_affinity(db, user_inn, candidate_ids, scores,
+                                       fallback_interests=request_interests)
 
     # Always apply mismatch penalty when user has declared interests
-    await _apply_profile_mismatch_penalty(db, user_inn, candidate_ids, scores)
+    await _apply_profile_mismatch_penalty(db, user_inn, candidate_ids, scores,
+                                          fallback_interests=request_interests)
 
     if session_id:
         await _apply_session_events(db, user_inn, session_id, candidate_ids, scores)
@@ -229,6 +251,7 @@ async def _apply_industry_affinity(
     user_inn: str,
     candidate_ids: list[int],
     scores: dict[int, ScoredSTE],
+    fallback_interests: list[str] | None = None,
 ) -> None:
     """
     Cold-start personalization: boost items matching user's declared interests.
@@ -238,16 +261,17 @@ async def _apply_industry_affinity(
     if not candidate_ids:
         return
 
-    profile = await db.get(UserProfile, user_inn)
-    if not profile:
-        return
-
-    # Collect all declared interests (from profile_data.interests or fallback to industry)
     interests: list[str] = []
-    if profile.profile_data and "interests" in profile.profile_data:
-        interests = profile.profile_data["interests"]
-    elif profile.industry:
-        interests = [profile.industry]
+    profile = await db.get(UserProfile, user_inn)
+    if profile:
+        if profile.profile_data and "interests" in profile.profile_data:
+            interests = profile.profile_data["interests"]
+        elif profile.industry:
+            interests = [profile.industry]
+
+    # Use request-level interests as fallback (e.g. during onboarding or anonymous sessions)
+    if not interests and fallback_interests:
+        interests = fallback_interests
 
     if not interests:
         return
@@ -281,6 +305,7 @@ async def _apply_profile_mismatch_penalty(
     user_inn: str,
     candidate_ids: list[int],
     scores: dict[int, ScoredSTE],
+    fallback_interests: list[str] | None = None,
 ) -> None:
     """
     Penalise domain-specific items that do not match the user's declared interests.
@@ -294,15 +319,17 @@ async def _apply_profile_mismatch_penalty(
     if not candidate_ids:
         return
 
-    profile = await db.get(UserProfile, user_inn)
-    if not profile:
-        return
-
     interests: list[str] = []
-    if profile.profile_data and "interests" in profile.profile_data:
-        interests = profile.profile_data["interests"]
-    elif profile.industry:
-        interests = [profile.industry]
+    profile = await db.get(UserProfile, user_inn)
+    if profile:
+        if profile.profile_data and "interests" in profile.profile_data:
+            interests = profile.profile_data["interests"]
+        elif profile.industry:
+            interests = [profile.industry]
+
+    if not interests and fallback_interests:
+        interests = fallback_interests
+
     if not interests:
         return
 

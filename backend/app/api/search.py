@@ -79,16 +79,30 @@ async def search_ste(req: SearchRequest, db: AsyncSession = Depends(get_db)):
         return SearchResponse(query=req.query, total=0, results=[])
 
     # --- Exact match pinning ---
-    # If any candidate name matches the query exactly (case-insensitive), pin it at top
+    # Pin exact matches, but reduce pin strength for domain-mismatched categories.
     q_lower = corrected_query.strip().lower()
+    from app.services.personalization import INDUSTRY_CATEGORIES, DOMAIN_SPECIFIC_CATEGORIES
+    user_safe_cats: set[str] = set()
+    for interest in (req.interests or []):
+        user_safe_cats.update(INDUSTRY_CATEGORIES.get(interest, []))
+
     for c in candidates:
         if (c.get("name") or "").lower() == q_lower:
-            c["base_score"] = 999.0
+            cat = c.get("category") or ""
+            # If user has declared interests and this category is domain-specific for OTHER domains
+            # (and not in user's safe categories), use a soft pin instead of hard pin
+            is_wrong_domain = (
+                user_safe_cats
+                and cat in DOMAIN_SPECIFIC_CATEGORIES
+                and cat not in user_safe_cats
+            )
+            c["base_score"] = 2.0 if is_wrong_domain else 999.0
 
     candidate_ids = [c["id"] for c in candidates]
 
     # --- Stage 3: SQL personalization boosts ---
-    boosts = await get_user_boosts(db, req.user_inn, req.session_id, candidate_ids)
+    boosts = await get_user_boosts(db, req.user_inn, req.session_id, candidate_ids,
+                                   request_interests=req.interests or [])
 
     # --- Stage 3b: Collaborative filtering boosts (co-purchase patterns) ---
     try:
@@ -283,7 +297,9 @@ def _apply_catboost_rerank(
 
             cb_norm = (reranked_map.get(sid, 0.0) - cb_min) / cb_range
             nm = _name_match_bonus(c["name"], query)
-            combined = 0.40 * base + 0.10 * cb_norm + 0.50 * nm + boost_obj.net_score * 0.02 + session_d * 0.01
+            # Personalization weight 0.20: a full penalty (-0.65) reduces score by 0.13,
+            # enough to demote mismatched items below relevant ones with the same text score.
+            combined = 0.40 * base + 0.10 * cb_norm + 0.50 * nm + boost_obj.net_score * 0.20 + session_d * 0.05
 
             scored.append((sid, combined, c, boost_obj.explanations))
         return scored
@@ -298,7 +314,7 @@ def _apply_catboost_rerank(
         boost_obj = boosts[sid]
         session_d = session_deltas.get(sid, 0.0)
         nm = _name_match_bonus(c["name"], query)
-        total = 0.40 * base + 0.50 * nm + boost_obj.net_score * 0.02 + session_d * 0.01
+        total = 0.40 * base + 0.50 * nm + boost_obj.net_score * 0.20 + session_d * 0.05
         scored.append((sid, total, c, boost_obj.explanations))
     return scored
 

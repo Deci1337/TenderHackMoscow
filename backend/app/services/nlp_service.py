@@ -257,6 +257,10 @@ class NLPService:
                 for he in homograph_expansions:
                     expanded.extend(self.lemmatize(he))
                 applied.append(f"{lemma} ~> {', '.join(homograph_expansions[:3])} (context)")
+                # When a context-specific homograph resolution exists, skip the generic
+                # synonym expansion for this lemma to avoid polluting results with the
+                # wrong interpretation (e.g. don't add pen synonyms for a builder).
+                continue
 
             if lemma in PROCUREMENT_SYNONYMS:
                 for syn in PROCUREMENT_SYNONYMS[lemma]:

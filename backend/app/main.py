@@ -10,7 +10,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from loguru import logger
 from sqlalchemy import text
 
-from app.api import events, search, users
+from app.api import events, products, search, users
 from app.config import settings
 from app.database import Base, async_session, engine
 
@@ -219,6 +219,7 @@ app.add_middleware(
 app.include_router(search.router, prefix=settings.API_V1_PREFIX)
 app.include_router(events.router, prefix=settings.API_V1_PREFIX)
 app.include_router(users.router, prefix=settings.API_V1_PREFIX)
+app.include_router(products.router, prefix=settings.API_V1_PREFIX)
 
 
 @app.get("/health")
