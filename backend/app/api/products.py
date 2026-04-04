@@ -23,6 +23,7 @@ class CreateProductRequest(BaseModel):
     tags: list[str] = []
     description: str = ""
     creator_user_id: str
+    order_count: int = 0
 
 
 class PromoteRequest(BaseModel):
@@ -77,7 +78,7 @@ async def create_product(req: CreateProductRequest, db: AsyncSession = Depends(g
             :tags,
             :desc,
             :uid,
-            0,
+            :order_count,
             0
         )
         RETURNING id, name, category, tags, order_count, promotion_boost,
@@ -90,6 +91,7 @@ async def create_product(req: CreateProductRequest, db: AsyncSession = Depends(g
         "tags": req.tags or [],
         "desc": req.description.strip(),
         "uid": req.creator_user_id,
+        "order_count": max(0, req.order_count),
     })
     await db.commit()
     r = row.fetchone()

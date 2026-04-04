@@ -347,16 +347,16 @@ def _apply_catboost_rerank(
 
             cb_norm = (reranked_map.get(sid, 0.0) - cb_min) / cb_range
             nm = _name_match_bonus(c["name"], query)
-            # Personalization weight 0.20: a full penalty (-0.65) reduces score by 0.13,
-            # enough to demote mismatched items below relevant ones with the same text score.
             combined = 0.40 * base + 0.10 * cb_norm + 0.50 * nm + boost_obj.net_score * 0.20 + session_d * 0.05
 
             explanations = list(boost_obj.explanations)
+            has_mismatch = any(e.get("factor") == "profile_mismatch" for e in explanations)
 
-            # Promotion boost (Task 4)
+            # Promotion boost only for profile-matching items.
+            # A promoted pen should not jump to #1 for a builder.
             promoted_until = c.get("promoted_until")
-            if promoted_until and promoted_until > _now_cb:
-                promotion_signal = float(c.get("promotion_boost") or 2.0)
+            if promoted_until and promoted_until > _now_cb and not has_mismatch:
+                promotion_signal = float(c.get("promotion_boost") or 0)
                 combined += promotion_signal
                 explanations.append({
                     "reason": "Продвигается",
@@ -364,7 +364,6 @@ def _apply_catboost_rerank(
                     "weight": promotion_signal,
                 })
 
-            # Popularity tiebreaker (Task 4)
             combined += min(c.get("order_count") or 0, 10000) / 10000 * 0.1
 
             scored.append((sid, combined, c, explanations))
@@ -386,11 +385,11 @@ def _apply_catboost_rerank(
         total = 0.40 * base + 0.50 * nm + boost_obj.net_score * 0.02 + session_d * 0.01
 
         explanations = list(boost_obj.explanations)
+        has_mismatch = any(e.get("factor") == "profile_mismatch" for e in explanations)
 
-        # Promotion boost (Task 4)
         promoted_until = c.get("promoted_until")
-        if promoted_until and promoted_until > _now:
-            promotion_signal = float(c.get("promotion_boost") or 2.0)
+        if promoted_until and promoted_until > _now and not has_mismatch:
+            promotion_signal = float(c.get("promotion_boost") or 0)
             total += promotion_signal
             explanations.append({
                 "reason": "Продвигается",
@@ -398,7 +397,6 @@ def _apply_catboost_rerank(
                 "weight": promotion_signal,
             })
 
-        # Popularity tiebreaker (Task 4)
         total += min(c.get("order_count") or 0, 10000) / 10000 * 0.1
 
         scored.append((sid, total, c, explanations))

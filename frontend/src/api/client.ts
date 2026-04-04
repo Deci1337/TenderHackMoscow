@@ -72,6 +72,7 @@ export interface CreateProductRequest {
   tags: string[];
   description: string;
   creator_user_id: string;
+  order_count?: number;
 }
 
 export interface MyProduct {

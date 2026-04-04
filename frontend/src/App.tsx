@@ -41,9 +41,24 @@ function generateUserId(): string {
 }
 
 export default function App() {
-  const [user, setUser] = useState<User | null>(null);
-  if (!user) return <Onboarding onDone={setUser} />;
-  return <Main user={user} onLogout={() => setUser(null)} />;
+  const [user, setUser] = useState<User | null>(() => {
+    try {
+      const s = localStorage.getItem("portal_user");
+      return s ? JSON.parse(s) : null;
+    } catch { return null; }
+  });
+
+  function login(u: User) {
+    localStorage.setItem("portal_user", JSON.stringify(u));
+    setUser(u);
+  }
+  function logout() {
+    localStorage.removeItem("portal_user");
+    setUser(null);
+  }
+
+  if (!user) return <Onboarding onDone={login} />;
+  return <Main user={user} onLogout={logout} />;
 }
 
 /* ===================  ONBOARDING  =================== */
@@ -164,6 +179,7 @@ function Main({ user, onLogout }: { user: User; onLogout: () => void }) {
   const suggestRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => { api.facets().then(r => setFacets(r.categories)).catch(() => {}); }, []);
+  useEffect(() => { api.getMyProducts(user.id).then(setMyProducts).catch(() => {}); }, [user.id]);
 
   // close suggestions on outside click
   useEffect(() => {
@@ -765,6 +781,7 @@ function CreateProductModal({ userId, onClose, onCreate }: {
   const [category, setCategory] = useState("");
   const [tagInput, setTagInput] = useState("");
   const [tags, setTags] = useState<string[]>([]);
+  const [orderCount, setOrderCount] = useState(0);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
 
@@ -779,7 +796,7 @@ function CreateProductModal({ userId, onClose, onCreate }: {
     if (!name.trim() || !category.trim()) { setError("Заполните название и категорию"); return; }
     setLoading(true); setError("");
     try {
-      const p = await api.createProduct({ name: name.trim(), category: category.trim(), tags, description: "", creator_user_id: userId });
+      const p = await api.createProduct({ name: name.trim(), category: category.trim(), tags, description: "", creator_user_id: userId, order_count: orderCount });
       onCreate(p as unknown as MyProduct);
       onClose();
     } catch { setError("Ошибка при добавлении товара"); }
@@ -826,6 +843,13 @@ function CreateProductModal({ userId, onClose, onCreate }: {
                 style={{ flex: 1, padding: "7px 10px", border: "1px solid #D4DBE6", borderRadius: 4, fontSize: 13, outline: "none" }} />
               <button type="button" onClick={addTag} style={{ padding: "7px 12px", background: "#E7EEF7", border: "none", borderRadius: 4, cursor: "pointer", fontSize: 13, color: "#264B82" }}>+</button>
             </div>
+          </div>
+          <div>
+            <label style={{ fontSize: 12, fontWeight: 600, color: "#7F8792", display: "block", marginBottom: 4 }}>Количество заказов</label>
+            <input type="number" min={0} value={orderCount} onChange={e => setOrderCount(Math.max(0, Number(e.target.value)))}
+              placeholder="0"
+              style={{ width: 140, padding: "8px 12px", border: "1px solid #D4DBE6", borderRadius: 4, fontSize: 14, boxSizing: "border-box", outline: "none" }} />
+            <span style={{ fontSize: 11, color: "#8C8C8C", marginLeft: 8 }}>влияет на позицию в выдаче</span>
           </div>
           <div style={{ display: "flex", gap: 8, justifyContent: "flex-end" }}>
             <button type="button" onClick={onClose} style={{ padding: "8px 18px", border: "1px solid #D4DBE6", borderRadius: 4, background: "#fff", cursor: "pointer", fontSize: 13 }}>Отмена</button>
