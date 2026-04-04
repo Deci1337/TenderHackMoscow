@@ -78,10 +78,32 @@ async def search_ste(req: SearchRequest, db: AsyncSession = Depends(get_db)):
     if not candidates:
         return SearchResponse(query=req.query, total=0, results=[])
 
+    # --- Exact match pinning ---
+    # If any candidate name matches the query exactly (case-insensitive), pin it at top
+    q_lower = corrected_query.strip().lower()
+    for c in candidates:
+        if (c.get("name") or "").lower() == q_lower:
+            c["base_score"] = 999.0
+
     candidate_ids = [c["id"] for c in candidates]
 
     # --- Stage 3: SQL personalization boosts ---
     boosts = await get_user_boosts(db, req.user_inn, req.session_id, candidate_ids)
+
+    # --- Stage 3b: Collaborative filtering boosts (co-purchase patterns) ---
+    try:
+        from app.services.collaborative_filter import get_collaborative_boosts
+        collab = await get_collaborative_boosts(db, req.user_inn, candidate_ids)
+        for ste_id, collab_boost in collab.items():
+            if ste_id in boosts:
+                boosts[ste_id].boost += collab_boost
+                boosts[ste_id].explanations.append({
+                    "reason": "Часто берут вместе с вашими прошлыми закупками",
+                    "factor": "collaborative",
+                    "weight": collab_boost,
+                })
+    except Exception:
+        pass
 
     # --- Stage 4: Redis session adjustments ---
     session_deltas: dict[int, float] = {}

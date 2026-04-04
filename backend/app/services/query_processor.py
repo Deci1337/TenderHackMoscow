@@ -92,6 +92,12 @@ def process_query(raw: str) -> "ProcessedQuery":
     Cached at the word level so repeated tokens are free.
     """
     raw = strip_procurement_boilerplate(raw)
+    # Transliterate Latin input before lemmatization
+    try:
+        from app.services.transliteration import transliterate_query
+        raw, _ = transliterate_query(raw)
+    except Exception:
+        pass
     tokens = _tokenize(raw)
     if not tokens:
         return ProcessedQuery(original=raw, lemmatized=raw, ts_query=raw)
