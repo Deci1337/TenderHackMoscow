@@ -181,16 +181,14 @@ class HybridSearchService:
         max_bm25 = max(bm25_scores.values()) if bm25_scores else 1.0
         max_sem = max(semantic_scores.values()) if semantic_scores else 1.0
 
-        word_count = len(query_data.get("lemmas", corrected.split()))
-        if word_count <= 1:
+        query_type = query_data.get("query_type", "medium")
+        if query_type == "short":
             alpha = 0.8
-            query_type = "short"
-        elif word_count <= 3:
-            alpha = settings.BM25_WEIGHT
-            query_type = "medium"
-        else:
+        elif query_type == "long":
             alpha = 0.3
-            query_type = "long"
+        else:
+            alpha = settings.BM25_WEIGHT
+        logger.debug(f"Query '{corrected}' type={query_type} alpha={alpha:.2f}")
 
         results: list[SearchResult] = []
         for ste_id in all_ids:
