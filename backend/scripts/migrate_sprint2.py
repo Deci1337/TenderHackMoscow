@@ -32,10 +32,10 @@ MIGRATIONS = [
     END
     $$ LANGUAGE plpgsql;
     """,
+    "DROP TRIGGER IF EXISTS ste_tsv_trigger ON ste",
     """
-    DROP TRIGGER IF EXISTS ste_tsv_trigger ON ste;
     CREATE TRIGGER ste_tsv_trigger BEFORE INSERT OR UPDATE ON ste
-    FOR EACH ROW EXECUTE FUNCTION ste_tsv_update();
+    FOR EACH ROW EXECUTE FUNCTION ste_tsv_update()
     """,
 ]
 
