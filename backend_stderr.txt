@@ -1,0 +1,22 @@
+INFO:     Started server process [20352]
+INFO:     Waiting for application startup.
+[32m2026-04-04 04:52:20.046[0m | [1mINFO    [0m | [36mapp.main[0m:[36mlifespan[0m:[36m124[0m - [1mStarting up: creating database tables...[0m
+[32m2026-04-04 04:52:20.142[0m | [1mINFO    [0m | [36mapp.main[0m:[36mlifespan[0m:[36m127[0m - [1mDatabase tables ready[0m
+2026-04-04 04:52:20,285 [INFO] Loading dictionaries from C:\Python314\Lib\site-packages\pymorphy3_dicts_ru\data
+2026-04-04 04:52:20,427 [INFO] format: 2.4, revision: 417150, updated: 2022-01-08T22:09:24.565962
+[32m2026-04-04 04:52:22.837[0m | [1mINFO    [0m | [36mapp.services.nlp_service[0m:[36minitialize[0m:[36m133[0m - [1mLoaded frequency dict from C:\Users\HONOR\Desktop\TenderHackMoscow\backend\app\data\frequency_dict_ru.txt[0m
+[32m2026-04-04 04:52:22.838[0m | [1mINFO    [0m | [36mapp.services.nlp_service[0m:[36minitialize[0m:[36m138[0m - [1mNLP service initialized[0m
+[32m2026-04-04 04:52:25.921[0m | [33m[1mWARNING [0m | [36mapp.main[0m:[36m_build_ml_indexes[0m:[36m117[0m - [33m[1mML index build failed (search will use SQL fallback): No module named 'transformers'[0m
+[32m2026-04-04 04:52:25.923[0m | [34m[1mDEBUG   [0m | [36mapp.main[0m:[36m_build_ml_indexes[0m:[36m119[0m - [34m[1mTraceback (most recent call last):
+  File "C:\Users\HONOR\Desktop\TenderHackMoscow\backend\app\main.py", line 31, in _build_ml_indexes
+    embedder = get_embedding_service()
+  File "C:\Users\HONOR\Desktop\TenderHackMoscow\backend\app\services\embedding_service.py", line 105, in get_embedding_service
+    svc.initialize()
+    ~~~~~~~~~~~~~~^^
+  File "C:\Users\HONOR\Desktop\TenderHackMoscow\backend\app\services\embedding_service.py", line 28, in initialize
+    from transformers import AutoTokenizer, AutoModel
+ModuleNotFoundError: No module named 'transformers'
+[0m
+INFO:     Application startup complete.
+INFO:     Uvicorn running on http://0.0.0.0:8000 (Press CTRL+C to quit)
+[32m2026-04-04 04:56:31.334[0m | [1mINFO    [0m | [36mapp.services.ranking_service[0m:[36m_try_load_models[0m:[36m50[0m - [1mLoaded CatBoost ranker[0m

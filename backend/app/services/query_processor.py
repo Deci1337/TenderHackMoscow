@@ -45,6 +45,31 @@ STOP_WORDS = {
     "не", "что", "это", "как", "к", "о", "от", "до", "же",
 }
 
+# Boilerplate prefixes common in procurement queries that should be stripped
+# "поставка канцтоваров" -> "канцтоваров", "закупка компьютеров" -> "компьютеров"
+_PROCUREMENT_BOILERPLATE = re.compile(
+    r"^(поставка|поставку|закупка|закупку|закупок|приобретение|приобретению|"
+    r"покупка|покупку|снабжение|снабжению|обеспечение|обеспечению|"
+    r"услуги?\s+по\s+поставке|услуги?\s+поставки|товар[ыа]?)\s+",
+    re.IGNORECASE,
+)
+
+
+def strip_procurement_boilerplate(query: str) -> str:
+    """
+    Remove boilerplate procurement words from the start of a query.
+    'поставка бумаги офисной' -> 'бумаги офисной'
+    'закупка компьютеров' -> 'компьютеров'
+    Applied iteratively to handle 'поставка товара бумага'.
+    """
+    cleaned = query.strip()
+    for _ in range(3):  # max 3 passes
+        new = _PROCUREMENT_BOILERPLATE.sub("", cleaned).strip()
+        if new == cleaned:
+            break
+        cleaned = new
+    return cleaned or query  # never return empty string
+
 
 def _tokenize(text: str) -> list[str]:
     return [t for t in re.split(r"[\s\-/,;]+", text.strip().lower()) if len(t) > 1]
@@ -66,6 +91,7 @@ def process_query(raw: str) -> "ProcessedQuery":
     Returns a ProcessedQuery with all forms needed by the search endpoint.
     Cached at the word level so repeated tokens are free.
     """
+    raw = strip_procurement_boilerplate(raw)
     tokens = _tokenize(raw)
     if not tokens:
         return ProcessedQuery(original=raw, lemmatized=raw, ts_query=raw)

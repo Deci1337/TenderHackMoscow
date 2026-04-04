@@ -57,8 +57,24 @@ async def search_ste(req: SearchRequest, db: AsyncSession = Depends(get_db)):
 
     pq = process_query(corrected_query)
 
-    # --- Stage 2: Candidate retrieval ---
+    # --- Stage 2: Candidate retrieval with zero-result cascade ---
     candidates = await _get_candidates(req, pq, corrected_query, db)
+
+    # Cascade 1: category filter too strict -> retry without it
+    if not candidates and req.category:
+        log.debug("Zero results with category filter, retrying without")
+        relaxed = req.model_copy(update={"category": None})
+        candidates = await _get_candidates(relaxed, pq, corrected_query, db)
+
+    # Cascade 2: multi-word query too specific -> retry with only the most meaningful word
+    if not candidates and len(pq.lemmatized.split()) > 1:
+        # Use the longest lemma (most specific content word)
+        core_word = max(pq.lemmatized.split(), key=len)
+        log.debug("Zero results for '%s', retrying with core word '%s'", corrected_query, core_word)
+        core_pq = process_query(core_word)
+        relaxed2 = req.model_copy(update={"category": None})
+        candidates = await _get_candidates(relaxed2, core_pq, core_word, db)
+
     if not candidates:
         return SearchResponse(query=req.query, total=0, results=[])
 
@@ -214,20 +230,27 @@ async def _get_candidates(req, pq, corrected_query: str, db: AsyncSession) -> li
 
     # SQL fallback
     fetch_limit = req.limit * 3
-    category_clause = "AND category = :category" if req.category else ""
+    category_clause = "AND s.category = :category" if req.category else ""
     await db.execute(text("SET pg_trgm.similarity_threshold = 0.1"))
     rows = (
         await db.execute(
             text(f"""
-        SELECT id, name, category, attributes,
-               similarity(name, :orig)                               AS trgm_score,
-               ts_rank(name_tsv, to_tsquery('russian', :tsq))        AS ts_score_orig,
-               ts_rank(name_tsv, plainto_tsquery('russian', :lemma)) AS ts_score_lemma
-        FROM ste
-        WHERE (name % :orig
-           OR name_tsv @@ to_tsquery('russian', :tsq)
-           OR name_tsv @@ plainto_tsquery('russian', :lemma)
-           OR name ILIKE :ilike)
+        WITH pop AS (
+            SELECT ste_id, COUNT(*) AS contract_cnt
+            FROM contracts
+            GROUP BY ste_id
+        )
+        SELECT s.id, s.name, s.category, s.attributes,
+               similarity(s.name, :orig)                                  AS trgm_score,
+               ts_rank(s.name_tsv, to_tsquery('russian', :tsq))           AS ts_score_orig,
+               ts_rank(s.name_tsv, plainto_tsquery('russian', :lemma))    AS ts_score_lemma,
+               COALESCE(p.contract_cnt, 0)                                AS popularity
+        FROM ste s
+        LEFT JOIN pop p ON p.ste_id = s.id
+        WHERE (s.name % :orig
+           OR s.name_tsv @@ to_tsquery('russian', :tsq)
+           OR s.name_tsv @@ plainto_tsquery('russian', :lemma)
+           OR s.name ILIKE :ilike)
            {category_clause}
         ORDER BY trgm_score DESC
         LIMIT :lim
@@ -243,6 +266,8 @@ async def _get_candidates(req, pq, corrected_query: str, db: AsyncSession) -> li
         )
     ).mappings().all()
 
+    # Normalise popularity to [0, 0.2] so it can nudge but not dominate text score
+    max_pop = max((r["popularity"] for r in rows), default=1) or 1
     candidates = [
         {
             "id": r["id"],
@@ -250,12 +275,14 @@ async def _get_candidates(req, pq, corrected_query: str, db: AsyncSession) -> li
             "category": r["category"],
             "attributes": r["attributes"],
             "base_score": (
-                float(r["trgm_score"] or 0) * 0.5
-                + float(r["ts_score_orig"] or 0) * 0.3
-                + float(r["ts_score_lemma"] or 0) * 0.2
+                float(r["trgm_score"] or 0) * 0.45
+                + float(r["ts_score_orig"] or 0) * 0.25
+                + float(r["ts_score_lemma"] or 0) * 0.15
+                + (float(r["popularity"]) / max_pop) * 0.15   # popularity signal
             ),
             "bm25_score": float(r["trgm_score"] or 0),
             "semantic_score": 0.0,
+            "popularity": int(r["popularity"]),
         }
         for r in rows
     ]
