@@ -4,7 +4,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.database import get_db
 from app.models import Event
 from app.schemas import EventCreate, EventResponse
-from app.services.session_index import record_event
+from app.services.session_index import record_event, record_category_click
 
 router = APIRouter(prefix="/events", tags=["events"])
 
@@ -47,6 +47,19 @@ async def log_event(event: EventCreate, db: AsyncSession = Depends(get_db)):
     # Update Redis session index for real-time dynamic indexing
     if event.session_id:
         await record_event(event.user_inn, event.session_id, event.ste_id, event.event_type)
+
+        # Track category momentum for session drift personalization
+        category = (event.meta or {}).get("category")
+        if category and event.event_type in {"click", "view", "like"}:
+            await record_category_click(event.user_inn, event.session_id, category)
+
+    # Flush strong signals (like / hide) to persistent cross-session profile immediately
+    if event.event_type in {"like", "hide", "bounce"} and event.session_id:
+        try:
+            from app.services.session_index import flush_to_profile
+            await flush_to_profile(event.user_inn, event.session_id, db)
+        except Exception:
+            pass
 
     return EventResponse(id=db_event.id, created_at=db_event.created_at)
 

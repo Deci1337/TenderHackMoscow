@@ -105,10 +105,23 @@ async def search_ste(req: SearchRequest, db: AsyncSession = Depends(get_db)):
     except Exception:
         pass
 
-    # --- Stage 4: Redis session adjustments ---
+    # --- Stage 4: Redis session adjustments + cross-session memory ---
     session_deltas: dict[int, float] = {}
     if req.session_id:
         session_deltas = await get_session_adjustments(req.user_inn, req.session_id, candidate_ids)
+
+    # Merge persistent cross-session signals (liked/hidden IDs stored in profile_data)
+    if req.user_inn:
+        from app.services.session_index import get_cross_session_adjustments, get_momentum_boosts
+        cross = await get_cross_session_adjustments(req.user_inn, candidate_ids, db)
+        for sid, delta in cross.items():
+            session_deltas[sid] = session_deltas.get(sid, 0.0) + delta
+
+        # Session momentum: boost categories the user has been clicking this session
+        if req.session_id:
+            momentum = await get_momentum_boosts(req.user_inn, req.session_id, candidates)
+            for sid, boost in momentum.items():
+                session_deltas[sid] = session_deltas.get(sid, 0.0) + boost
 
     # --- Stage 5: CatBoost LTR re-rank ---
     scored = _apply_catboost_rerank(candidates, boosts, session_deltas, req.user_inn)
@@ -122,7 +135,11 @@ async def search_ste(req: SearchRequest, db: AsyncSession = Depends(get_db)):
 
     page = scored[req.offset : req.offset + req.limit]
 
-    # --- Stage 6: Build response ---
+    # --- Stage 6: Enrich page with price analytics ---
+    from app.services.price_analytics import get_price_info
+    page_ids = [sid for sid, _, _, _ in page]
+    price_data = await get_price_info(db, page_ids)
+
     results = [
         STEResult(
             id=sid,
@@ -131,6 +148,9 @@ async def search_ste(req: SearchRequest, db: AsyncSession = Depends(get_db)):
             attributes=row["attributes"] if isinstance(row["attributes"], dict) else None,
             score=round(score, 4),
             explanations=[RankingExplanation(**e) for e in explanations],
+            snippet=row.get("snippet") or None,
+            avg_price=price_data.get(sid, {}).get("avg_price"),
+            price_trend=price_data.get(sid, {}).get("price_trend"),
         )
         for sid, score, row, explanations in page
     ]
@@ -253,6 +273,7 @@ async def _get_candidates(req, pq, corrected_query: str, db: AsyncSession) -> li
     # SQL fallback
     fetch_limit = req.limit * 3
     category_clause = "AND s.category = :category" if req.category else ""
+    is_phrase = len(corrected_query.split()) > 1
     await db.execute(text("SET pg_trgm.similarity_threshold = 0.1"))
     rows = (
         await db.execute(
@@ -263,10 +284,15 @@ async def _get_candidates(req, pq, corrected_query: str, db: AsyncSession) -> li
             GROUP BY ste_id
         )
         SELECT s.id, s.name, s.category, s.attributes,
-               similarity(s.name, :orig)                                  AS trgm_score,
-               ts_rank(s.name_tsv, to_tsquery('russian', :tsq))           AS ts_score_orig,
-               ts_rank(s.name_tsv, plainto_tsquery('russian', :lemma))    AS ts_score_lemma,
-               COALESCE(p.contract_cnt, 0)                                AS popularity
+               similarity(s.name, :orig)                                       AS trgm_score,
+               ts_rank(s.name_tsv, to_tsquery('russian', :tsq))                AS ts_score_orig,
+               ts_rank(s.name_tsv, plainto_tsquery('russian', :lemma))         AS ts_score_lemma,
+               ts_rank(s.name_tsv, phraseto_tsquery('russian', :lemma))        AS ts_score_phrase,
+               COALESCE(p.contract_cnt, 0)                                     AS popularity,
+               ts_headline('russian', s.name,
+                   plainto_tsquery('russian', :lemma),
+                   'MaxWords=10, MinWords=3, StartSel=<<, StopSel=>>'
+               )                                                                AS snippet
         FROM ste s
         LEFT JOIN pop p ON p.ste_id = s.id
         WHERE (s.name % :orig
@@ -288,7 +314,13 @@ async def _get_candidates(req, pq, corrected_query: str, db: AsyncSession) -> li
         )
     ).mappings().all()
 
-    # Normalise popularity to [0, 0.2] so it can nudge but not dominate text score
+    # Apply negative term filter (post-retrieval)
+    # "принтер -лазерный" -> exclude items whose name contains "лазерный"
+    if pq.negatives:
+        neg_lower = [n.lower() for n in pq.negatives]
+        rows = [r for r in rows if not any(n in (r["name"] or "").lower() for n in neg_lower)]
+
+    # Normalise popularity to [0, 0.15] so it nudges but doesn't dominate text score
     max_pop = max((r["popularity"] for r in rows), default=1) or 1
     candidates = [
         {
@@ -296,11 +328,13 @@ async def _get_candidates(req, pq, corrected_query: str, db: AsyncSession) -> li
             "name": r["name"],
             "category": r["category"],
             "attributes": r["attributes"],
+            "snippet": r.get("snippet") or "",  # ts_headline highlighted excerpt
             "base_score": (
-                float(r["trgm_score"] or 0) * 0.45
-                + float(r["ts_score_orig"] or 0) * 0.25
-                + float(r["ts_score_lemma"] or 0) * 0.15
-                + (float(r["popularity"]) / max_pop) * 0.15   # popularity signal
+                float(r["trgm_score"] or 0) * 0.40
+                + float(r["ts_score_orig"] or 0) * 0.20
+                + float(r["ts_score_lemma"] or 0) * 0.10
+                + float(r["ts_score_phrase"] or 0) * 0.15   # phrase proximity bonus
+                + (float(r["popularity"]) / max_pop) * 0.15  # popularity signal
             ),
             "bm25_score": float(r["trgm_score"] or 0),
             "semantic_score": 0.0,

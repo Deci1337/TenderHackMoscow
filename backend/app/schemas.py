@@ -30,6 +30,9 @@ class STEResult(BaseModel):
     attributes: dict | None = None
     score: float = 0.0
     explanations: list[RankingExplanation] = []
+    snippet: str | None = None      # ts_headline excerpt with <<matched>> markers
+    avg_price: float | None = None  # average historical contract price
+    price_trend: str | None = None  # "up" | "down" | "stable"
 
 
 class SearchResponse(BaseModel):

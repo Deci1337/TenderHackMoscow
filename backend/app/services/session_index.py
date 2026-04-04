@@ -94,6 +94,159 @@ async def get_session_adjustments(
     return adjustments
 
 
+async def flush_to_profile(
+    user_inn: str,
+    session_id: str,
+    db,  # AsyncSession
+) -> None:
+    """
+    Persist strong session signals (2+ interactions) into user_profiles.profile_data.
+    This enables cross-session memory that survives Redis TTL.
+    """
+    from sqlalchemy import select, update
+    from app.models import UserProfile
+
+    key = _session_key(user_inn, session_id)
+    try:
+        r = await get_redis()
+        data = await r.hgetall(key)
+        await r.aclose()
+    except Exception:
+        return
+
+    liked: list[int] = []
+    hidden: list[int] = []
+    for field_name, count_str in data.items():
+        parts = field_name.split(":")
+        if len(parts) != 2:
+            continue
+        signal_type, ste_id_str = parts
+        try:
+            ste_id = int(ste_id_str)
+            count = int(count_str)
+        except ValueError:
+            continue
+        if count >= 2:  # only strong signals (seen 2+ times)
+            if signal_type == "boosted":
+                liked.append(ste_id)
+            elif signal_type == "penalized":
+                hidden.append(ste_id)
+
+    if not liked and not hidden:
+        return
+
+    try:
+        profile = (await db.execute(
+            select(UserProfile).where(UserProfile.inn == user_inn)
+        )).scalar_one_or_none()
+
+        if not profile:
+            return
+
+        pd = dict(profile.profile_data or {})
+        existing_liked: list[int] = pd.get("liked_ids", [])
+        existing_hidden: list[int] = pd.get("hidden_ids", [])
+
+        merged_liked = list(set(existing_liked + liked))[-200:]
+        merged_hidden = list(set(existing_hidden + hidden))[-200:]
+
+        pd["liked_ids"] = merged_liked
+        pd["hidden_ids"] = merged_hidden
+        profile.profile_data = pd
+        await db.commit()
+        log.debug("Flushed %d liked / %d hidden for %s", len(liked), len(hidden), user_inn)
+    except Exception as e:
+        log.warning("Cross-session flush failed: %s", e)
+
+
+async def get_cross_session_adjustments(
+    user_inn: str,
+    candidate_ids: list[int],
+    db,  # AsyncSession
+) -> dict[int, float]:
+    """
+    Load persisted liked/hidden signals from user_profiles and apply as score adjustments.
+    """
+    from sqlalchemy import select
+    from app.models import UserProfile
+
+    if not candidate_ids:
+        return {}
+
+    try:
+        profile = (await db.execute(
+            select(UserProfile).where(UserProfile.inn == user_inn)
+        )).scalar_one_or_none()
+
+        if not profile or not profile.profile_data:
+            return {}
+
+        pd = profile.profile_data
+        liked_set = set(pd.get("liked_ids", []))
+        hidden_set = set(pd.get("hidden_ids", []))
+
+        result: dict[int, float] = {}
+        for sid in candidate_ids:
+            if sid in hidden_set:
+                result[sid] = result.get(sid, 0.0) - 0.5   # persistent hide penalty
+            elif sid in liked_set:
+                result[sid] = result.get(sid, 0.0) + 0.2   # persistent like boost
+        return result
+    except Exception as e:
+        log.warning("Cross-session load failed: %s", e)
+        return {}
+
+
+async def record_category_click(
+    user_inn: str,
+    session_id: str,
+    category: str,
+) -> None:
+    """Track categories clicked within a session for momentum drift."""
+    key = f"momentum:{user_inn}:{session_id}"
+    try:
+        r = await get_redis()
+        async with r.pipeline(transaction=True) as pipe:
+            await pipe.hincrby(key, category, 1)
+            await pipe.expire(key, TTL_SECONDS)
+            await pipe.execute()
+        await r.aclose()
+    except Exception as e:
+        log.warning("Redis momentum record failed: %s", e)
+
+
+async def get_momentum_boosts(
+    user_inn: str,
+    session_id: str,
+    candidates: list[dict],
+) -> dict[int, float]:
+    """
+    If user clicked 2+ items in category X this session, boost other candidates
+    from that category. Simulates a "session intent drift" signal.
+    """
+    key = f"momentum:{user_inn}:{session_id}"
+    try:
+        r = await get_redis()
+        raw = await r.hgetall(key)
+        await r.aclose()
+    except Exception:
+        return {}
+
+    if not raw:
+        return {}
+
+    # Normalize category click counts to a 0..0.3 boost
+    max_clicks = max(int(v) for v in raw.values()) or 1
+    boosts: dict[int, float] = {}
+    for c in candidates:
+        cat = c.get("category")
+        if cat and cat in raw:
+            strength = int(raw[cat]) / max_clicks
+            boosts[c["id"]] = round(strength * 0.3, 3)
+
+    return boosts
+
+
 async def get_session_change_reason(
     user_inn: str,
     session_id: str,

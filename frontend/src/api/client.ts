@@ -22,6 +22,9 @@ export interface STEResult {
   attributes: Record<string, unknown> | null;
   score: number;
   explanations: RankingExplanation[];
+  snippet?: string | null;      // ts_headline excerpt with <<matched>> markers
+  avg_price?: number | null;    // average historical contract price
+  price_trend?: "up" | "down" | "stable" | null;
 }
 
 export interface SearchResponse {
@@ -84,12 +87,12 @@ export const api = {
     });
   },
 
-  logEvent(userInn: string, steId: number, eventType: string, sessionId: string, query?: string) {
+  logEvent(userInn: string, steId: number, eventType: string, sessionId: string, query?: string, meta?: Record<string, unknown>) {
     return request<{ id: number; created_at: string }>("/events", {
       method: "POST",
       body: JSON.stringify({
         user_inn: userInn, ste_id: steId, event_type: eventType,
-        session_id: sessionId, query,
+        session_id: sessionId, query, meta,
       }),
     });
   },

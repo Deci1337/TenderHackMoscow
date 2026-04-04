@@ -171,8 +171,10 @@ function Main({ user, onLogout }: { user: User; onLogout: () => void }) {
     } finally { setLoading(false); }
   }, [user.id, sessionId, sortBy, category, history]);
 
-  function trackAction(steId: number, action: string) {
-    api.logEvent(user.id, steId, action, sessionId, query).catch(() => {});
+  function trackAction(steId: number, action: string, category?: string) {
+    const meta: Record<string, unknown> = {};
+    if (category) meta.category = category;
+    api.logEvent(user.id, steId, action, sessionId, query, meta).catch(() => {});
   }
 
   function onInputChange(val: string) {
@@ -349,17 +351,31 @@ function Main({ user, onLogout }: { user: User; onLogout: () => void }) {
                         <div style={{ flex: 1 }}>
                           <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 2 }}>
                             <span style={{ fontSize: 11, fontWeight: 700, color: "#264B82", background: "#E7EEF7", borderRadius: 3, padding: "1px 6px", fontFamily: "monospace" }}>#{offset + idx + 1}</span>
-                            <h3 onClick={() => { trackAction(item.id, "click"); setModalItem(item); }}
+                            <h3 onClick={() => { trackAction(item.id, "click", item.category ?? undefined); setModalItem(item); }}
                               style={{ fontSize: 14, fontWeight: 600, color: "#1A1A1A", margin: 0, cursor: "pointer", lineHeight: 1.35 }}
                               onMouseEnter={e => (e.currentTarget.style.color = "#264B82")}
                               onMouseLeave={e => (e.currentTarget.style.color = "#1A1A1A")}
                             >{item.name}</h3>
                           </div>
                           {item.category && <p style={{ fontSize: 12, color: "#8C8C8C", margin: "2px 0 0" }}>{item.category}</p>}
+                          {/* ts_headline snippet — highlights matching terms */}
+                          {item.snippet && item.snippet !== item.name && (
+                            <p style={{ fontSize: 11, color: "#7F8792", margin: "4px 0 0", fontStyle: "italic" }}
+                              dangerouslySetInnerHTML={{ __html: item.snippet.replace(/<<(.*?)>>/g, '<mark style="background:#FFF3CD;padding:0 2px;border-radius:2px">$1</mark>') }}
+                            />
+                          )}
                         </div>
                         <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-end", gap: 4, flexShrink: 0 }}>
                           <span style={{ fontSize: 10, fontFamily: "monospace", color: "#8C8C8C", background: "#E7EEF7", borderRadius: 3, padding: "2px 6px" }}>ID {item.id}</span>
                           <span style={{ fontSize: 10, fontFamily: "monospace", color: "#264B82" }}>score: {item.score.toFixed(3)}</span>
+                          {/* Price from historical contracts */}
+                          {item.avg_price != null && (
+                            <span style={{ fontSize: 11, color: "#0D9B68", fontWeight: 600 }}>
+                              ~{item.avg_price.toLocaleString("ru-RU")} ₽
+                              {item.price_trend === "down" && <span title="Цена снижается" style={{ marginLeft: 3, color: "#0D9B68" }}>↓</span>}
+                              {item.price_trend === "up" && <span title="Цена растёт" style={{ marginLeft: 3, color: "#F67319" }}>↑</span>}
+                            </span>
+                          )}
                         </div>
                       </div>
                       {/* Attributes preview */}
@@ -380,9 +396,9 @@ function Main({ user, onLogout }: { user: User; onLogout: () => void }) {
                       )}
                     </div>
                     <div style={{ padding: "6px 16px", borderTop: "1px solid #E7EEF7", display: "flex", alignItems: "center", gap: 4 }}>
-                      <Btn onClick={() => { trackAction(item.id, "click"); setModalItem(item); }} color="#264B82"><ChevronRight size={12} /> Подробнее</Btn>
-                      <Btn onClick={() => trackAction(item.id, "compare")} color="#8C8C8C"><GitCompare size={12} /> Сравнить</Btn>
-                      <Btn onClick={() => trackAction(item.id, "like")} color="#0D9B68"><Star size={12} /> Нравится</Btn>
+                      <Btn onClick={() => { trackAction(item.id, "click", item.category ?? undefined); setModalItem(item); }} color="#264B82"><ChevronRight size={12} /> Подробнее</Btn>
+                      <Btn onClick={() => trackAction(item.id, "compare", item.category ?? undefined)} color="#8C8C8C"><GitCompare size={12} /> Сравнить</Btn>
+                      <Btn onClick={() => trackAction(item.id, "like", item.category ?? undefined)} color="#0D9B68"><Star size={12} /> Нравится</Btn>
                       <button onClick={() => trackAction(item.id, "hide")}
                         style={{ background: "none", border: "none", color: "#C9D1DF", fontSize: 12, cursor: "pointer", padding: "4px 8px", borderRadius: 4, marginLeft: "auto" }}
                         onMouseEnter={e => { e.currentTarget.style.color = "#DB2B21"; e.currentTarget.style.background = "#FDECEA"; }}

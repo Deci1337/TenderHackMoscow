@@ -86,12 +86,32 @@ def _lemmatize_word(word: str) -> str:
     return parsed[0].normal_form
 
 
+_RE_NEGATIVE = re.compile(r"(?:^|\s)(?:-|не\s+)(\S+)", re.IGNORECASE)
+
+
+def extract_negatives(raw: str) -> tuple[str, list[str]]:
+    """
+    Extract negative terms from query.
+    'принтер -лазерный' -> ('принтер', ['лазерный'])
+    'принтер не лазерный' -> ('принтер', ['лазерный'])
+    Returns (clean_query, negative_terms).
+    """
+    negative_terms: list[str] = []
+    def _replace(m: re.Match) -> str:
+        negative_terms.append(m.group(1).lower())
+        return " "
+    clean = _RE_NEGATIVE.sub(_replace, raw).strip()
+    return clean, negative_terms
+
+
 def process_query(raw: str) -> "ProcessedQuery":
     """
     Returns a ProcessedQuery with all forms needed by the search endpoint.
     Cached at the word level so repeated tokens are free.
     """
     raw = strip_procurement_boilerplate(raw)
+    # Extract negative terms before further processing
+    raw, negatives = extract_negatives(raw)
     # Transliterate Latin input before lemmatization
     try:
         from app.services.transliteration import transliterate_query
@@ -114,16 +134,19 @@ def process_query(raw: str) -> "ProcessedQuery":
     # e.g. "школьная парта" -> "школьный | парта"
     ts_query = " | ".join(lemmas)
 
-    return ProcessedQuery(original=raw, lemmatized=lemmatized, ts_query=ts_query)
+    return ProcessedQuery(original=raw, lemmatized=lemmatized, ts_query=ts_query,
+                          negatives=negatives)
 
 
 class ProcessedQuery:
-    __slots__ = ("original", "lemmatized", "ts_query")
+    __slots__ = ("original", "lemmatized", "ts_query", "negatives")
 
-    def __init__(self, original: str, lemmatized: str, ts_query: str):
+    def __init__(self, original: str, lemmatized: str, ts_query: str,
+                 negatives: list[str] | None = None):
         self.original = original
         self.lemmatized = lemmatized
         self.ts_query = ts_query
+        self.negatives: list[str] = negatives or []
 
     def __repr__(self) -> str:
         return f"ProcessedQuery(orig={self.original!r}, lemma={self.lemmatized!r})"
