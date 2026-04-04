@@ -200,8 +200,13 @@ function Main({ user, onLogout }: { user: User; onLogout: () => void }) {
     try {
       const data = await api.search(q, user.id, sessionId, PAGE_SIZE, off, sort, cat || undefined, user.interests);
       setResponse(data);
-    } catch {
-      setResponse({ query: q, corrected_query: null, did_you_mean: null, total: 0, results: [] });
+    } catch (err: unknown) {
+      const isTimeout = err instanceof DOMException && err.name === "AbortError";
+      if (isTimeout) {
+        setResponse({ query: q, corrected_query: null, did_you_mean: null, total: -1, results: [] });
+      } else {
+        setResponse({ query: q, corrected_query: null, did_you_mean: null, total: 0, results: [] });
+      }
     } finally { setLoading(false); }
   }, [user.id, sessionId, sortBy, category, history]);
 
@@ -500,8 +505,16 @@ function Main({ user, onLogout }: { user: User; onLogout: () => void }) {
             </>
           )}
 
+          {/* Timeout */}
+          {!loading && response && response.total === -1 && (
+            <EmptyBox icon={<PackageSearch size={48} style={{ color: "#F67319" }} />}
+              title="Сервер загружается, подождите 30 секунд"
+              subtitle="Система прогревает поисковые индексы. Попробуйте повторить поиск."
+              onPick={(q) => { setInputVal(q); doSearch(q); }} />
+          )}
+
           {/* Empty results */}
-          {!loading && response && response.results.length === 0 && (
+          {!loading && response && response.total === 0 && response.results.length === 0 && (
             <EmptyBox icon={<PackageSearch size={48} style={{ color: "#D4DBE6" }} />}
               title={`По запросу «${query}» ничего не найдено`}
               subtitle="Попробуйте другой запрос или снимите фильтр категории"

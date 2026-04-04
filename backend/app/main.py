@@ -29,8 +29,13 @@ async def _build_ml_indexes():
         from app.services.search_service import get_search_service, STEDocument
         from app.services.personalization_service import get_personalization_service
 
-        nlp = get_nlp_service()
-        embedder = get_embedding_service()
+        loop = asyncio.get_event_loop()
+        _executor = ThreadPoolExecutor(max_workers=2)
+
+        nlp = await loop.run_in_executor(_executor, get_nlp_service)
+        await asyncio.sleep(0)
+        embedder = await loop.run_in_executor(_executor, get_embedding_service)
+        await asyncio.sleep(0)
         searcher = get_search_service()
         searcher.initialize(nlp, embedder)
 
@@ -44,9 +49,6 @@ async def _build_ml_indexes():
             return
 
         logger.info(f"Building ML indexes for {len(rows)} STEs...")
-
-        loop = asyncio.get_event_loop()
-        _executor = ThreadPoolExecutor(max_workers=2)
 
         # --- NLP document cache -------------------------------------------
         # Avoids re-processing 537k rows on every restart (~4 min → instant)
@@ -120,22 +122,28 @@ async def _build_ml_indexes():
             await loop.run_in_executor(_executor, _save_nlp_cache, nlp_cache_path, cached_nlp)
             logger.info(f"NLP cache updated (+{len(delta)})")
 
-        for d in cached_nlp:
-            doc = STEDocument(
-                ste_id=d["ste_id"], name=d["name"], category=d["category"],
-                attributes=d["attributes"], name_normalized=d["name_normalized"],
-                lemmas=d["lemmas"],
-            )
-            documents.append(doc)
-            texts.append(d["name"])
+        def _build_docs_and_texts(cached_data):
+            docs, txts = [], []
+            for d in cached_data:
+                docs.append(STEDocument(
+                    ste_id=d["ste_id"], name=d["name"], category=d["category"],
+                    attributes=d["attributes"], name_normalized=d["name_normalized"],
+                    lemmas=d["lemmas"],
+                ))
+                txts.append(d["name"])
+            return docs, txts
 
-        # --- Embedding cache ----------------------------------------------
-        # Tolerate small mismatches (e.g. a few products added via API) to avoid
-        # re-computing 537k embeddings on every restart.
+        documents, texts = await loop.run_in_executor(
+            _executor, _build_docs_and_texts, cached_nlp
+        )
+        await asyncio.sleep(0)
+
         cache_path = _DATA_DIR / "ste_embeddings_cache.npy"
         embs = None
         if cache_path.exists():
-            cached = np.load(str(cache_path))
+            cached = await loop.run_in_executor(
+                _executor, lambda: np.load(str(cache_path))
+            )
             diff = len(documents) - cached.shape[0]
             if diff == 0:
                 embs = cached
@@ -146,9 +154,13 @@ async def _build_ml_indexes():
                     f"({diff} new). Embedding only the delta."
                 )
                 new_texts = texts[cached.shape[0]:]
-                new_embs = embedder.embed(new_texts)
+                new_embs = await loop.run_in_executor(
+                    _executor, embedder.embed, new_texts
+                )
                 embs = np.vstack([cached, new_embs])
-                np.save(str(cache_path), embs)
+                await loop.run_in_executor(
+                    _executor, lambda: np.save(str(cache_path), embs)
+                )
                 logger.info(f"Delta embeddings computed and cache updated (+{diff})")
             else:
                 logger.warning(
@@ -161,21 +173,107 @@ async def _build_ml_indexes():
             batch_size = 256
             parts = []
             for i in range(0, len(texts), batch_size):
-                parts.append(embedder.embed(texts[i : i + batch_size]))
+                batch = await loop.run_in_executor(
+                    _executor, embedder.embed, texts[i : i + batch_size]
+                )
+                parts.append(batch)
                 if (i // batch_size) % 20 == 0:
                     logger.info(f"  embeddings: {min(i + batch_size, len(texts))}/{len(texts)}")
-                    await asyncio.sleep(0)
+                await asyncio.sleep(0)
             embs = np.vstack(parts)
-            np.save(str(cache_path), embs)
+            await loop.run_in_executor(
+                _executor, lambda: np.save(str(cache_path), embs)
+            )
             logger.info("Embeddings computed and cached to disk")
 
-        for i, doc in enumerate(documents):
-            doc.embedding = embs[i]
+        def _assign_embeddings(docs, embeddings):
+            for i, doc in enumerate(docs):
+                doc.embedding = embeddings[i]
 
-        searcher.index_documents(documents)
+        await loop.run_in_executor(_executor, _assign_embeddings, documents, embs)
+        await asyncio.sleep(0)
+
+        # BM25 build in small chunks so the GIL is released between each,
+        # keeping the event loop responsive for health checks and SQL-fallback searches.
+        chunk = 50000
+        from collections import Counter
+        import math
+
+        bm25 = searcher._bm25
+        bm25.doc_count = len(documents)
+        total_len = 0
+        doc_freqs: dict[str, int] = {}
+        raw_postings: dict[str, list] = {}
+        doc_lens: dict[int, int] = {}
+
+        for ci in range(0, len(documents), chunk):
+            def _bm25_pass1(docs_slice):
+                _tl = 0
+                _df: dict[str, int] = {}
+                _rp: dict[str, list] = {}
+                _dl: dict[int, int] = {}
+                for doc in docs_slice:
+                    dl = len(doc.lemmas)
+                    _dl[doc.ste_id] = dl
+                    _tl += dl
+                    tf = Counter(doc.lemmas)
+                    for term in tf:
+                        _df[term] = _df.get(term, 0) + 1
+                        _rp.setdefault(term, []).append((doc.ste_id, tf[term]))
+                return _tl, _df, _rp, _dl
+
+            sl = documents[ci:ci + chunk]
+            tl, df, rp, dl = await loop.run_in_executor(_executor, _bm25_pass1, sl)
+            total_len += tl
+            doc_lens.update(dl)
+            for t, c in df.items():
+                doc_freqs[t] = doc_freqs.get(t, 0) + c
+            for t, ps in rp.items():
+                raw_postings.setdefault(t, []).extend(ps)
+            await asyncio.sleep(0)
+
+        bm25.avg_dl = total_len / max(bm25.doc_count, 1)
+
+        def _bm25_pass2(k1, b, avg_dl, dc, d_freqs, r_post, d_lens):
+            inv = {}
+            for term, postings in r_post.items():
+                dff = d_freqs[term]
+                idf = math.log((dc - dff + 0.5) / (dff + 0.5) + 1.0)
+                scored = []
+                for ste_id, tf in postings:
+                    dl = d_lens[ste_id]
+                    num = tf * (k1 + 1)
+                    den = tf + k1 * (1 - b + b * dl / avg_dl)
+                    scored.append((ste_id, idf * num / den))
+                inv[term] = scored
+            return inv
+
+        bm25._inv = await loop.run_in_executor(
+            _executor, _bm25_pass2,
+            bm25.k1, bm25.b, bm25.avg_dl, bm25.doc_count,
+            doc_freqs, raw_postings, doc_lens,
+        )
+        logger.info(f"BM25 inverted index: {bm25.doc_count} docs, "
+                     f"{len(bm25._inv)} unique terms, avg_dl={bm25.avg_dl:.1f}")
+        await asyncio.sleep(0)
+
+        def _build_faiss(search_svc, docs):
+            docs_with_emb = [d for d in docs if d.embedding is not None]
+            if docs_with_emb:
+                ste_ids = [d.ste_id for d in docs_with_emb]
+                matrix = np.array([d.embedding for d in docs_with_emb], dtype=np.float32)
+                search_svc._faiss.build(ste_ids, matrix)
+            search_svc._documents = {d.ste_id: d for d in docs}
+            search_svc._initialized = True
+
+        await loop.run_in_executor(_executor, _build_faiss, searcher, documents)
         logger.info(f"BM25 + FAISS indexes ready ({len(documents)} docs)")
 
-        ste_emb_map = {doc.ste_id: doc.embedding for doc in documents if doc.embedding is not None}
+        def _build_emb_map(docs):
+            return {d.ste_id: d.embedding for d in docs if d.embedding is not None}
+
+        ste_emb_map = await loop.run_in_executor(_executor, _build_emb_map, documents)
+        await asyncio.sleep(0)
 
         async with async_session() as db:
             contract_rows = (await db.execute(text(
@@ -184,19 +282,24 @@ async def _build_ml_indexes():
                 "WHERE c.customer_inn IS NOT NULL AND c.ste_id IS NOT NULL"
             ))).all()
 
-        user_data: dict = defaultdict(lambda: {"ste_ids": [], "categories": []})
-        for inn, ste_id, category in contract_rows:
-            user_data[str(inn)]["ste_ids"].append(ste_id)
-            if category:
-                user_data[str(inn)]["categories"].append(category)
+        def _build_profiles(rows, emb_map):
+            ps = get_personalization_service()
+            ud: dict = defaultdict(lambda: {"ste_ids": [], "categories": []})
+            for inn, ste_id, category in rows:
+                ud[str(inn)]["ste_ids"].append(ste_id)
+                if category:
+                    ud[str(inn)]["categories"].append(category)
+            for inn, data in ud.items():
+                ps.build_profile_from_contracts(
+                    customer_inn=inn, categories=data["categories"],
+                    ste_embeddings=emb_map, purchased_ste_ids=data["ste_ids"],
+                )
+            return len(ud)
 
-        ps = get_personalization_service()
-        for inn, data in user_data.items():
-            ps.build_profile_from_contracts(
-                customer_inn=inn, categories=data["categories"],
-                ste_embeddings=ste_emb_map, purchased_ste_ids=data["ste_ids"],
-            )
-        logger.info(f"User profiles built: {len(user_data)} users")
+        n_users = await loop.run_in_executor(
+            _executor, _build_profiles, contract_rows, ste_emb_map
+        )
+        logger.info(f"User profiles built: {n_users} users")
 
     except Exception as e:
         logger.warning(f"ML index build failed (search will use SQL fallback): {e}")

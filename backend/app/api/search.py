@@ -414,18 +414,15 @@ async def _get_candidates(req, pq, corrected_query: str, db: AsyncSession,
         from app.services.search_service import get_search_service
         searcher = get_search_service()
         if searcher._initialized:
-            # Reuse query_data from the outer NLP call — avoid double processing
             _qd = query_data or {}
             qtok = [w for w in corrected_query.split() if len(w) >= 2]
             pool = 8 if len(qtok) >= 2 else 3
             ml_results = searcher.search(_qd, top_k=req.limit * pool)
             if not ml_results:
                 return []
-            # Fetch promotion/order data from DB for ML candidates (not in the index)
             ml_ids = [r.ste_id for r in ml_results]
             promo_rows = {}
             try:
-                from sqlalchemy import bindparam as _bp
                 _promo_q = await db.execute(
                     text("SELECT id, promoted_until, promotion_boost, order_count, tags, creator_user_id "
                          "FROM ste WHERE id = ANY(:ids)"),
@@ -542,7 +539,6 @@ async def _get_candidates(req, pq, corrected_query: str, db: AsyncSession,
             from app.services.embedding_service import get_embedding_service
             embedder = get_embedding_service()
             q_vec = embedder.embed_single(corrected_query)
-            # Only re-embed top-20 by text score to keep latency under 1s on CPU
             ranked = sorted(range(len(candidates)), key=lambda i: candidates[i]["base_score"], reverse=True)
             top_idx = ranked[:20]
             names = [candidates[i]["name"] for i in top_idx]
