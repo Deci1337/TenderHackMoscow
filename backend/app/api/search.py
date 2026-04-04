@@ -21,15 +21,13 @@ router = APIRouter(prefix="/search", tags=["search"])
 async def search_ste(req: SearchRequest, db: AsyncSession = Depends(get_db)):
     """
     Hybrid personalized search pipeline:
-      Stage 1: Query preprocessing — pymorphy2 lemmatization + Dev2 NLP (typos, synonyms)
-      Stage 2: Candidate retrieval — pg_trgm + tsvector fallback
-               OR Dev2 hybrid BM25 + semantic search (rubert-tiny2)
-      Stage 3: SQL personalization boosts (contract history + category affinity)
-      Stage 4: Redis session adjustments (dynamic indexing)
-      Stage 5: Dev2 CatBoost LTR re-rank (if available)
-      Stage 6: Build response with per-item explanations
+      1. NLP preprocessing (typo correction, synonyms, lemmatization)
+      2. Candidate retrieval (BM25+semantic hybrid OR SQL fallback)
+      3. SQL personalization boosts (contract history + category affinity)
+      4. Redis session adjustments
+      5. CatBoost LTR re-rank (always applied when model is loaded)
+      6. Build response with explanations
     """
-    # Track popular queries in Redis (fire-and-forget)
     try:
         import redis.asyncio as aioredis
         from app.config import get_settings
@@ -39,38 +37,22 @@ async def search_ste(req: SearchRequest, db: AsyncSession = Depends(get_db)):
     except Exception:
         pass
 
-    # --- Stage 1: Query preprocessing (typo correction + synonyms + lemmatization) ---
+    # --- Stage 1: Query preprocessing ---
     corrected_query = req.query
     was_corrected = False
     applied_synonyms: list[str] = []
 
-    # 1a. Typo correction (SymSpell, local dictionary)
-    try:
-        from app.services.typo_corrector import correct_query
-        corrected_query, was_corrected = correct_query(req.query)
-    except Exception:
-        pass
-
-    # 1b. Synonym expansion (procurement domain)
-    search_query = corrected_query
-    try:
-        from app.services.synonyms import expand_query
-        search_query, applied_synonyms = expand_query(corrected_query)
-    except Exception:
-        pass
-
-    # 1c. Morphological analysis (pymorphy3 lemmatization)
-    pq = process_query(search_query)
-
-    # 1d. Try Dev2 NLP for richer processing (if available)
     try:
         from app.services.nlp_service import get_nlp_service
         nlp = get_nlp_service()
         query_data = nlp.process_query(req.query)
         corrected_query = query_data.get("corrected", corrected_query)
-        was_corrected = was_corrected or query_data.get("was_corrected", False)
+        was_corrected = query_data.get("was_corrected", False)
+        applied_synonyms = query_data.get("applied_synonyms", [])
     except Exception:
         pass
+
+    pq = process_query(corrected_query)
 
     # --- Stage 2: Candidate retrieval ---
     candidates = await _get_candidates(req, pq, corrected_query, db)
@@ -78,7 +60,6 @@ async def search_ste(req: SearchRequest, db: AsyncSession = Depends(get_db)):
         return SearchResponse(query=req.query, total=0, results=[])
 
     candidate_ids = [c["id"] for c in candidates]
-    base_scores = {c["id"]: c["base_score"] for c in candidates}
 
     # --- Stage 3: SQL personalization boosts ---
     boosts = await get_user_boosts(db, req.user_inn, req.session_id, candidate_ids)
@@ -88,52 +69,26 @@ async def search_ste(req: SearchRequest, db: AsyncSession = Depends(get_db)):
     if req.session_id:
         session_deltas = await get_session_adjustments(req.user_inn, req.session_id, candidate_ids)
 
-    # --- Stage 5: Combine scores + Dev2 CatBoost re-rank ---
-    scored = [
-        (
-            c["id"],
-            base_scores[c["id"]] + boosts[c["id"]].net_score + session_deltas.get(c["id"], 0.0),
-            c,
-            boosts[c["id"]].explanations,
-        )
-        for c in candidates
-    ]
-
-    try:
-        from app.services.personalization_service import get_personalization_service
-        from app.services.ranking_service import get_ranking_service
-        from app.services.search_service import SearchResult
-        user_ctx = get_personalization_service()._profiles.get(req.user_inn)
-        if user_ctx:
-            ranker = get_ranking_service()
-            # Convert to SearchResult for CatBoost ranker
-            sr_list = [
-                SearchResult(
-                    ste_id=sid, name=c["name"], category=c["category"],
-                    attributes=c["attributes"], final_score=s,
-                )
-                for sid, s, c, _ in scored
-            ]
-            reranked = ranker.rerank(sr_list, user_ctx)
-            # Rebuild scored preserving explanations, use reranked order
-            reranked_scores = {r.ste_id: r.final_score for r in reranked}
-            scored = [(sid, reranked_scores.get(sid, s), c, expl) for sid, s, c, expl in scored]
-    except Exception:
-        pass
+    # --- Stage 5: CatBoost LTR re-rank ---
+    scored = _apply_catboost_rerank(candidates, boosts, session_deltas, req.user_inn)
 
     if req.sort_by == "name":
         scored.sort(key=lambda x: x[2]["name"] or "")
     elif req.sort_by == "popularity":
-        scored.sort(key=lambda x: x[1], reverse=True)  # popularity_score from CatBoost features
+        scored.sort(key=lambda x: x[1], reverse=True)
     else:
-        scored.sort(key=lambda x: x[1], reverse=True)  # relevance (default)
-    page = scored[req.offset: req.offset + req.limit]
+        scored.sort(key=lambda x: x[1], reverse=True)
+
+    page = scored[req.offset : req.offset + req.limit]
 
     # --- Stage 6: Build response ---
     results = [
         STEResult(
-            id=sid, name=row["name"], category=row["category"],
-            attributes=row["attributes"], score=round(score, 4),
+            id=sid,
+            name=row["name"],
+            category=row["category"],
+            attributes=row["attributes"] if isinstance(row["attributes"], dict) else None,
+            score=round(score, 4),
             explanations=[RankingExplanation(**e) for e in explanations],
         )
         for sid, score, row, explanations in page
@@ -143,21 +98,93 @@ async def search_ste(req: SearchRequest, db: AsyncSession = Depends(get_db)):
     if req.session_id:
         ranking_change_reason = await get_session_change_reason(req.user_inn, req.session_id)
 
-    total = len(candidates)
-
     return SearchResponse(
         query=req.query,
         corrected_query=corrected_query if was_corrected else None,
         did_you_mean=ranking_change_reason,
-        total=total,
+        total=len(candidates),
         results=results,
     )
 
 
+def _apply_catboost_rerank(
+    candidates: list[dict],
+    boosts: dict,
+    session_deltas: dict[int, float],
+    user_inn: str,
+) -> list[tuple]:
+    """
+    Apply CatBoost reranking to candidates. Falls back to linear scoring
+    if the model or services are unavailable.
+    """
+    try:
+        from app.services.ranking_service import get_ranking_service
+        from app.services.search_service import SearchResult
+        from app.services.personalization_service import get_personalization_service
+
+        ranker = get_ranking_service()
+        user_ctx = get_personalization_service()._profiles.get(user_inn)
+
+        sr_list = [
+            SearchResult(
+                ste_id=c["id"],
+                name=c["name"],
+                category=c["category"],
+                attributes=str(c["attributes"]) if c["attributes"] else None,
+                bm25_score=c.get("bm25_score", 0.0),
+                semantic_score=c.get("semantic_score", 0.0),
+                final_score=c["base_score"],
+            )
+            for c in candidates
+        ]
+
+        ste_emb_map = None
+        try:
+            from app.services.search_service import get_search_service
+            ss = get_search_service()
+            if ss._initialized:
+                ste_emb_map = {
+                    doc.ste_id: doc.embedding
+                    for doc in ss._documents.values()
+                    if doc.embedding is not None
+                }
+        except Exception:
+            pass
+
+        reranked = ranker.rerank(sr_list, user_ctx, ste_embeddings=ste_emb_map)
+        reranked_map = {r.ste_id: r.final_score for r in reranked}
+
+        scored = []
+        for c in candidates:
+            sid = c["id"]
+            base = c["base_score"]
+            boost_obj = boosts[sid]
+            session_d = session_deltas.get(sid, 0.0)
+
+            catboost_score = reranked_map.get(sid, base)
+            combined = catboost_score + boost_obj.net_score * 0.5 + session_d * 0.3
+
+            scored.append((sid, combined, c, boost_obj.explanations))
+        return scored
+
+    except Exception as e:
+        log.debug("CatBoost rerank unavailable, using base scores: %s", e)
+
+    scored = []
+    for c in candidates:
+        sid = c["id"]
+        base = c["base_score"]
+        boost_obj = boosts[sid]
+        session_d = session_deltas.get(sid, 0.0)
+        total = base + boost_obj.net_score + session_d
+        scored.append((sid, total, c, boost_obj.explanations))
+    return scored
+
+
 async def _get_candidates(req, pq, corrected_query: str, db: AsyncSession) -> list[dict]:
     """
-    Try Dev2 hybrid search (BM25 + semantic) first.
-    Fall back to SQL pg_trgm + tsvector if ML services aren't ready.
+    Try hybrid ML search (BM25 + semantic) first.
+    Fall back to SQL pg_trgm + tsvector if ML services are not ready.
     """
     try:
         from app.services.search_service import get_search_service
@@ -169,19 +196,26 @@ async def _get_candidates(req, pq, corrected_query: str, db: AsyncSession) -> li
             ml_results = searcher.search(query_data, top_k=req.limit * 3)
             return [
                 {
-                    "id": r.ste_id, "name": r.name, "category": r.category,
-                    "attributes": r.attributes, "base_score": float(r.final_score),
+                    "id": r.ste_id,
+                    "name": r.name,
+                    "category": r.category,
+                    "attributes": r.attributes,
+                    "base_score": float(r.final_score),
+                    "bm25_score": r.bm25_score,
+                    "semantic_score": r.semantic_score,
                 }
                 for r in ml_results
             ]
     except Exception as e:
-        log.debug("Dev2 ML search unavailable, falling back to SQL: %s", e)
+        log.debug("ML search unavailable, falling back to SQL: %s", e)
 
-    # SQL fallback: lower pg_trgm threshold, use ILIKE as extra fallback
+    # SQL fallback
     fetch_limit = req.limit * 3
     category_clause = "AND category = :category" if req.category else ""
     await db.execute(text("SET pg_trgm.similarity_threshold = 0.1"))
-    rows = (await db.execute(text(f"""
+    rows = (
+        await db.execute(
+            text(f"""
         SELECT id, name, category, attributes,
                similarity(name, :orig)                               AS trgm_score,
                ts_rank(name_tsv, to_tsquery('russian', :tsq))        AS ts_score_orig,
@@ -194,67 +228,84 @@ async def _get_candidates(req, pq, corrected_query: str, db: AsyncSession) -> li
            {category_clause}
         ORDER BY trgm_score DESC
         LIMIT :lim
-    """), {
-        "orig": req.query, "tsq": pq.ts_query,
-        "lemma": pq.lemmatized, "lim": fetch_limit,
-        "ilike": f"%{req.query.strip()}%",
-        **( {"category": req.category} if req.category else {} ),
-    })).mappings().all()
+    """),
+            {
+                "orig": req.query,
+                "tsq": pq.ts_query,
+                "lemma": pq.lemmatized,
+                "lim": fetch_limit,
+                "ilike": f"%{req.query.strip()}%",
+                **({"category": req.category} if req.category else {}),
+            },
+        )
+    ).mappings().all()
 
-    return [
+    candidates = [
         {
-            "id": r["id"], "name": r["name"], "category": r["category"],
+            "id": r["id"],
+            "name": r["name"],
+            "category": r["category"],
             "attributes": r["attributes"],
             "base_score": (
                 float(r["trgm_score"] or 0) * 0.5
                 + float(r["ts_score_orig"] or 0) * 0.3
                 + float(r["ts_score_lemma"] or 0) * 0.2
             ),
+            "bm25_score": float(r["trgm_score"] or 0),
+            "semantic_score": 0.0,
         }
         for r in rows
     ]
 
+    if candidates:
+        try:
+            from app.services.embedding_service import get_embedding_service
+            embedder = get_embedding_service()
+            q_vec = embedder.embed_single(corrected_query)
+            names = [c["name"] for c in candidates]
+            doc_vecs = embedder.embed(names)
+            sims = doc_vecs @ q_vec
+            for i, c in enumerate(candidates):
+                c["semantic_score"] = max(float(sims[i]), 0.0)
+        except Exception:
+            pass
+
+    return candidates
+
 
 @router.get("/suggest")
 async def suggest(q: str = "", db: AsyncSession = Depends(get_db)):
-    """Fast autocomplete: up to 8 STE suggestions (pg_trgm, sub-50ms)."""
     try:
         if not q or len(q.strip()) < 2:
             return {"suggestions": []}
-
         clean = q.strip()
-        rows = (await db.execute(text("""
-            SELECT DISTINCT name FROM ste
-            WHERE name ILIKE :prefix
-            ORDER BY name
-            LIMIT 8
-        """), {"prefix": f"%{clean}%"})).scalars().all()
-
+        rows = (
+            await db.execute(
+                text("SELECT DISTINCT name FROM ste WHERE name ILIKE :prefix ORDER BY name LIMIT 8"),
+                {"prefix": f"%{clean}%"},
+            )
+        ).scalars().all()
         return {"suggestions": list(rows)}
-    except Exception as e:
+    except Exception:
         log.exception("Suggest error")
         return {"suggestions": []}
 
 
 @router.get("/facets", response_model=FacetsResponse)
 async def get_facets(db: AsyncSession = Depends(get_db)):
-    """Return category facets with counts for the filter panel."""
-    rows = (await db.execute(text("""
-        SELECT category, COUNT(*) AS cnt
-        FROM ste
-        WHERE category IS NOT NULL
-        GROUP BY category
-        ORDER BY cnt DESC
-        LIMIT 30
-    """))).mappings().all()
-    return FacetsResponse(
-        categories=[CategoryFacet(name=r["category"], count=r["cnt"]) for r in rows]
-    )
+    rows = (
+        await db.execute(
+            text("""
+        SELECT category, COUNT(*) AS cnt FROM ste
+        WHERE category IS NOT NULL GROUP BY category ORDER BY cnt DESC LIMIT 30
+    """)
+        )
+    ).mappings().all()
+    return FacetsResponse(categories=[CategoryFacet(name=r["category"], count=r["cnt"]) for r in rows])
 
 
 @router.get("/popular", response_model=PopularQueriesResponse)
 async def get_popular_queries():
-    """Return top-10 popular queries tracked in Redis."""
     try:
         import redis.asyncio as aioredis
         from app.config import get_settings

@@ -6,7 +6,7 @@ services:
       POSTGRES_USER: tenderhack
       POSTGRES_PASSWORD: tenderhack_secret
     ports:
-      - "5432:5432"
+      - "5433:5432"
     volumes:
       - pgdata:/var/lib/postgresql/data
       - ./backend/scripts/init_extensions.sql:/docker-entrypoint-initdb.d/01_extensions.sql

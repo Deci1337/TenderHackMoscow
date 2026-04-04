@@ -5,3 +5,6 @@ __pycache__
 .git
 .ruff_cache
 .pytest_cache
+# Large ML artifacts (mounted at runtime via ./backend:/app)
+app/data/*.npy
+app/data/*.csv

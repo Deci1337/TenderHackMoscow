@@ -28,14 +28,18 @@ async def log_event(event: EventCreate, db: AsyncSession = Depends(get_db)):
     await db.commit()
     await db.refresh(db_event)
 
-    # Update Dev2's in-memory personalization profile (non-critical)
+    # Update in-memory personalization profile with category and embedding
     try:
         from app.services.personalization_service import get_personalization_service
+        from app.services.search_service import get_search_service
+        ss = get_search_service()
+        doc = ss._documents.get(event.ste_id) if ss._initialized else None
         get_personalization_service().record_interaction(
             customer_inn=event.user_inn,
             ste_id=event.ste_id,
             action=event.event_type,
-            ste_category=None,
+            ste_embedding=doc.embedding if doc else None,
+            ste_category=doc.category if doc else None,
         )
     except Exception:
         pass

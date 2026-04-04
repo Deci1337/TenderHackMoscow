@@ -165,7 +165,7 @@ class HybridSearchService:
     ) -> list[SearchResult]:
         """Execute hybrid search using inverted BM25 + FAISS semantic."""
         settings = get_settings()
-        top_k = top_k or settings.search_top_k
+        top_k = top_k or settings.SEARCH_TOP_K
 
         lemmas = query_data["expanded_terms"]
         corrected = query_data["corrected"]
@@ -180,7 +180,17 @@ class HybridSearchService:
         all_ids = set(bm25_scores.keys()) | set(semantic_scores.keys())
         max_bm25 = max(bm25_scores.values()) if bm25_scores else 1.0
         max_sem = max(semantic_scores.values()) if semantic_scores else 1.0
-        alpha = settings.bm25_weight
+
+        word_count = len(query_data.get("lemmas", corrected.split()))
+        if word_count <= 1:
+            alpha = 0.8
+            query_type = "short"
+        elif word_count <= 3:
+            alpha = settings.BM25_WEIGHT
+            query_type = "medium"
+        else:
+            alpha = 0.3
+            query_type = "long"
 
         results: list[SearchResult] = []
         for ste_id in all_ids:

@@ -13,6 +13,7 @@ import asyncio
 import logging
 import os
 import sys
+from datetime import date, datetime
 from pathlib import Path
 
 import pandas as pd
@@ -167,13 +168,20 @@ async def load_contracts(session: AsyncSession, filepath: str):
     col_map = _contracts_col_map(df)
     log.info("Column mapping: %s", col_map)
 
+    cid_col = col_map.get("contract_id")
+    if cid_col:
+        before = len(df)
+        df = df.drop_duplicates(subset=[cid_col], keep="first")
+        if len(df) < before:
+            log.info("Dropped %d duplicate contract_id rows", before - len(df))
+
     count = 0
     for _, row in df.iterrows():
         contract = Contract(
             purchase_name=_get_val(row, col_map, "purchase_name"),
             contract_id=str(row[col_map["contract_id"]]),
             ste_id=_get_int(row, col_map, "ste_id"),
-            contract_date=_get_val(row, col_map, "contract_date"),
+            contract_date=_parse_contract_date(row, col_map, "contract_date"),
             cost=_get_float(row, col_map, "cost"),
             customer_inn=str(row[col_map["customer_inn"]]),
             customer_name=_get_val(row, col_map, "customer_name"),
@@ -235,7 +243,7 @@ def build_ml_indexes(ste_file: str, contracts_file: str | None = None):
         df = _load_ste_df(ste_file)
         col_map = _ste_col_map(df)
 
-        documents, texts, ids = [], [], []
+        documents, texts, ids, all_names = [], [], [], []
         for _, row in df.iterrows():
             sid = int(row[col_map["id"]]) if col_map.get("id") else 0
             name = str(row.get(col_map.get("name", ""), "") or "")
@@ -250,7 +258,9 @@ def build_ml_indexes(ste_file: str, contracts_file: str | None = None):
             ))
             texts.append(f"{name} {attrs}" if attrs != "{}" else name)
             ids.append(sid)
+            all_names.append(name)
 
+        nlp.build_frequency_dict_from_corpus(all_names)
         log.info("Generating embeddings for %d docs...", len(documents))
         batch_size = 256
         all_embs = []
@@ -371,6 +381,21 @@ def _get_float(row, col_map, key):
         except Exception:
             return None
     return None
+
+
+def _parse_contract_date(row, col_map, key):
+    col = col_map.get(key)
+    if not col or not pd.notna(row.get(col)):
+        return None
+    v = row[col]
+    if isinstance(v, datetime):
+        return v.date()
+    if isinstance(v, date):
+        return v
+    dt = pd.to_datetime(v, errors="coerce")
+    if pd.isna(dt):
+        return None
+    return dt.date()
 
 
 # ---------------------------------------------------------------------------
