@@ -67,6 +67,7 @@ class OnboardingRequest(BaseModel):
     name: str | None = None
     region: str | None = None
     industry: str | None = None
+    interests: list[str] = []
 
 
 class UserProfileResponse(BaseModel):

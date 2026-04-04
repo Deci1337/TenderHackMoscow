@@ -6,11 +6,16 @@ import {
 } from "lucide-react";
 
 const PAGE_SIZE = 20;
-const INDUSTRIES = ["Образование","Здравоохранение","Строительство","IT и связь","ЖКХ","Транспорт","Культура и спорт","Промышленность","Другое"];
+const INTEREST_OPTIONS = [
+  "Канцелярские товары", "Медицинские товары", "IT-оборудование",
+  "Стройматериалы", "Электротехника", "Образование",
+  "Хозяйственные товары", "ЖКХ", "Транспорт", "Другое",
+];
+// Demo users have pre-seeded contract history in the database
 const DEMO_USERS = [
-  { inn: "7701234567", name: "Школа №1234", industry: "Образование" },
-  { inn: "7709876543", name: "Городская больница №5", industry: "Здравоохранение" },
-  { inn: "7705551234", name: "СтройМонтаж", industry: "Строительство" },
+  { id: "7701234567", label: "Школа №1234", interests: ["Образование", "Канцелярские товары"] },
+  { id: "7709876543", label: "Городская больница №5", interests: ["Медицинские товары"] },
+  { id: "7705551234", label: "СтройМонтаж", interests: ["Стройматериалы", "Электротехника"] },
 ];
 const POPULAR = ["бумага офисная","картридж","компьютер","стул офисный","маска медицинская"];
 const SORT_OPTIONS = [
@@ -25,7 +30,11 @@ const BADGE_STYLES: Record<string, React.CSSProperties> = {
   negative: { background: "#FDECEA", color: "#DB2B21" },
 };
 
-interface User { inn: string; name: string; industry: string }
+interface User { id: string; label: string; interests: string[] }
+
+function generateUserId(): string {
+  return `uid_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 6)}`;
+}
 
 export default function App() {
   const [user, setUser] = useState<User | null>(null);
@@ -35,71 +44,74 @@ export default function App() {
 
 /* ===================  ONBOARDING  =================== */
 function Onboarding({ onDone }: { onDone: (u: User) => void }) {
-  const [inn, setInn] = useState("");
-  const [name, setName] = useState("");
-  const [industry, setIndustry] = useState("");
+  const [interests, setInterests] = useState<string[]>([]);
+
+  function toggle(item: string) {
+    setInterests(prev => prev.includes(item) ? prev.filter(x => x !== item) : [...prev, item]);
+  }
 
   function submit(e: React.FormEvent) {
     e.preventDefault();
-    if (inn && industry) {
-      api.onboard(inn, name, undefined, industry).catch(() => {});
-      onDone({ inn, name, industry });
-    }
+    if (interests.length === 0) return;
+    const id = generateUserId();
+    api.onboard(id, interests).catch(() => {});
+    onDone({ id, label: "Покупатель", interests });
   }
-  function pick(u: User) {
-    api.onboard(u.inn, u.name, undefined, u.industry).catch(() => {});
-    onDone(u);
+
+  function pickDemo(u: typeof DEMO_USERS[number]) {
+    api.onboard(u.id, u.interests).catch(() => {});
+    onDone({ id: u.id, label: u.label, interests: u.interests });
   }
 
   return (
     <div style={{ minHeight: "100vh", background: "#E7EEF7", display: "flex", alignItems: "center", justifyContent: "center", padding: 16 }}>
-      <div style={{ background: "#fff", borderRadius: 8, boxShadow: "0 4px 24px rgba(0,0,0,.12)", width: "100%", maxWidth: 420, overflow: "hidden" }}>
+      <div style={{ background: "#fff", borderRadius: 8, boxShadow: "0 4px 24px rgba(0,0,0,.12)", width: "100%", maxWidth: 440, overflow: "hidden" }}>
         <div style={{ background: "#264B82", padding: "20px 24px", color: "#fff" }}>
           <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 12 }}>
             <div style={{ width: 28, height: 28, background: "#fff", borderRadius: 4, display: "flex", alignItems: "center", justifyContent: "center", color: "#264B82", fontWeight: 900, fontSize: 12 }}>П</div>
             <span style={{ fontWeight: 600, fontSize: 14 }}>Портал поставщиков</span>
           </div>
           <div style={{ fontWeight: 700, fontSize: 18 }}>Персонализация поиска</div>
-          <div style={{ fontSize: 13, color: "#a3bfe0", marginTop: 4 }}>Укажите данные — система подберёт товары под вас</div>
+          <div style={{ fontSize: 13, color: "#a3bfe0", marginTop: 4 }}>Выберите интересующие категории — система поднимет их в выдаче</div>
         </div>
         <form onSubmit={submit} style={{ padding: 24, display: "flex", flexDirection: "column", gap: 16 }}>
-          <label style={{ fontSize: 13, fontWeight: 600, color: "#1A1A1A" }}>
-            ИНН организации *
-            <input value={inn} onChange={e => setInn(e.target.value.replace(/\D/g, "").slice(0, 12))} placeholder="7701234567" required
-              style={{ display: "block", width: "100%", marginTop: 4, padding: "8px 12px", border: "1px solid #D4DBE6", borderRadius: 4, fontSize: 14, outline: "none", boxSizing: "border-box" }} />
-          </label>
-          <label style={{ fontSize: 13, fontWeight: 600, color: "#1A1A1A" }}>
-            Название
-            <input value={name} onChange={e => setName(e.target.value)} placeholder="ГБОУ Школа №1234"
-              style={{ display: "block", width: "100%", marginTop: 4, padding: "8px 12px", border: "1px solid #D4DBE6", borderRadius: 4, fontSize: 14, outline: "none", boxSizing: "border-box" }} />
-          </label>
           <div>
-            <div style={{ fontSize: 13, fontWeight: 600, color: "#1A1A1A", marginBottom: 8 }}>Сфера деятельности *</div>
-            <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
-              {INDUSTRIES.map(ind => (
-                <button type="button" key={ind} onClick={() => setIndustry(ind)}
-                  style={{ padding: "6px 12px", borderRadius: 4, fontSize: 13, border: "1px solid", cursor: "pointer",
-                    borderColor: industry === ind ? "#264B82" : "#D4DBE6",
-                    background: industry === ind ? "#264B82" : "#fff",
-                    color: industry === ind ? "#fff" : "#1A1A1A" }}
-                >{ind}</button>
-              ))}
+            <div style={{ fontSize: 13, fontWeight: 600, color: "#1A1A1A", marginBottom: 10 }}>
+              Что вас интересует?
+              {interests.length > 0 && <span style={{ fontWeight: 400, color: "#8C8C8C", marginLeft: 6 }}>выбрано: {interests.length}</span>}
+            </div>
+            <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
+              {INTEREST_OPTIONS.map(item => {
+                const active = interests.includes(item);
+                return (
+                  <button type="button" key={item} onClick={() => toggle(item)}
+                    style={{ padding: "7px 14px", borderRadius: 20, fontSize: 13, border: "1px solid", cursor: "pointer", transition: "all .15s",
+                      borderColor: active ? "#264B82" : "#D4DBE6",
+                      background: active ? "#264B82" : "#fff",
+                      color: active ? "#fff" : "#1A1A1A",
+                      fontWeight: active ? 600 : 400 }}
+                  >{item}</button>
+                );
+              })}
             </div>
           </div>
-          <button type="submit" disabled={!inn || !industry}
-            style={{ padding: "10px 0", borderRadius: 4, border: "none", background: (!inn || !industry) ? "#a3bfe0" : "#264B82", color: "#fff", fontWeight: 600, fontSize: 14, cursor: (!inn || !industry) ? "default" : "pointer" }}
+          <button type="submit" disabled={interests.length === 0}
+            style={{ padding: "10px 0", borderRadius: 4, border: "none",
+              background: interests.length === 0 ? "#a3bfe0" : "#264B82",
+              color: "#fff", fontWeight: 600, fontSize: 14,
+              cursor: interests.length === 0 ? "default" : "pointer" }}
           >Начать поиск</button>
         </form>
-        <div style={{ padding: "0 24px 20px" }}>
-          <div style={{ fontSize: 11, color: "#8C8C8C", fontWeight: 600, textTransform: "uppercase", letterSpacing: 1, marginBottom: 8 }}>Демо-пользователи</div>
+        <div style={{ padding: "0 24px 20px", borderTop: "1px solid #E7EEF7" }}>
+          <div style={{ fontSize: 11, color: "#8C8C8C", fontWeight: 600, textTransform: "uppercase", letterSpacing: 1, margin: "14px 0 8px" }}>Попробовать с историей закупок</div>
           {DEMO_USERS.map(u => (
-            <button key={u.inn} onClick={() => pick(u)}
-              style={{ display: "flex", justifyContent: "space-between", width: "100%", padding: "8px 12px", border: "none", background: "transparent", borderRadius: 4, cursor: "pointer", textAlign: "left", fontSize: 14 }}
+            <button key={u.id} onClick={() => pickDemo(u)}
+              style={{ display: "flex", justifyContent: "space-between", alignItems: "center", width: "100%", padding: "8px 12px", border: "none", background: "transparent", borderRadius: 4, cursor: "pointer", textAlign: "left", fontSize: 14 }}
               onMouseEnter={e => (e.currentTarget.style.background = "#E7EEF7")}
               onMouseLeave={e => (e.currentTarget.style.background = "transparent")}
             >
-              <span style={{ fontWeight: 500, color: "#1A1A1A" }}>{u.name}</span>
-              <span style={{ fontSize: 12, color: "#8C8C8C" }}>{u.industry}</span>
+              <span style={{ fontWeight: 500, color: "#1A1A1A" }}>{u.label}</span>
+              <span style={{ fontSize: 11, color: "#8C8C8C" }}>{u.interests.join(", ")}</span>
             </button>
           ))}
         </div>
@@ -149,15 +161,15 @@ function Main({ user, onLogout }: { user: User; onLogout: () => void }) {
     const h = [q, ...history.filter(x => x !== q)].slice(0, 8);
     localStorage.setItem("sh", JSON.stringify(h));
     try {
-      const data = await api.search(q, user.inn, sessionId, PAGE_SIZE, off, sort, cat || undefined);
+      const data = await api.search(q, user.id, sessionId, PAGE_SIZE, off, sort, cat || undefined);
       setResponse(data);
     } catch {
       setResponse({ query: q, corrected_query: null, did_you_mean: null, total: 0, results: [] });
     } finally { setLoading(false); }
-  }, [user.inn, sessionId, sortBy, category, history]);
+  }, [user.id, sessionId, sortBy, category, history]);
 
   function trackAction(steId: number, action: string) {
-    api.logEvent(user.inn, steId, action, sessionId, query).catch(() => {});
+    api.logEvent(user.id, steId, action, sessionId, query).catch(() => {});
   }
 
   function onInputChange(val: string) {
@@ -199,7 +211,7 @@ function Main({ user, onLogout }: { user: User; onLogout: () => void }) {
             <span style={{ color: "#a3bfe0", fontSize: 12, marginLeft: 4 }}>/ Умный поиск</span>
           </div>
           <button onClick={onLogout} style={{ background: "rgba(255,255,255,.15)", border: "none", color: "#fff", padding: "4px 12px", borderRadius: 4, fontSize: 13, cursor: "pointer", display: "flex", alignItems: "center", gap: 6 }}>
-            {user.name || user.inn} <LogOut size={14} />
+            {user.label} <LogOut size={14} />
           </button>
         </div>
       </header>
@@ -210,7 +222,7 @@ function Main({ user, onLogout }: { user: User; onLogout: () => void }) {
           <div style={{ display: "flex", alignItems: "baseline", justifyContent: "space-between", marginBottom: 12 }}>
             <div>
               <h1 style={{ fontSize: 18, fontWeight: 700, color: "#1A1A1A", margin: 0 }}>Каталог товаров СТЕ</h1>
-              <p style={{ fontSize: 13, color: "#8C8C8C", margin: "2px 0 0" }}>{user.industry} · ИНН {user.inn}</p>
+              <p style={{ fontSize: 13, color: "#8C8C8C", margin: "2px 0 0" }}>{user.interests.join(" · ")}</p>
             </div>
             {response && <span style={{ fontSize: 12, color: "#8C8C8C" }}>Найдено: <strong style={{ color: "#1A1A1A" }}>{response.total}</strong></span>}
           </div>

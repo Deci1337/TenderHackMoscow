@@ -105,10 +105,14 @@ export const api = {
     return request<PopularQueriesResponse>("/search/popular");
   },
 
-  onboard(inn: string, name?: string, region?: string, industry?: string) {
+  onboard(userId: string, interests: string[]) {
     return request<UserProfile>("/users/onboarding", {
       method: "POST",
-      body: JSON.stringify({ inn, name, region, industry }),
+      body: JSON.stringify({
+        inn: userId,
+        industry: interests[0] ?? null,
+        interests,
+      }),
     });
   },
 

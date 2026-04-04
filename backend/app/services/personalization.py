@@ -199,18 +199,32 @@ async def _apply_industry_affinity(
     scores: dict[int, ScoredSTE],
 ) -> None:
     """
-    Cold-start personalization: boost items that match the user's declared industry.
+    Cold-start personalization: boost items matching user's declared interests.
     Only called when user has zero contract history.
-    No "Вы уже закупали" badge is ever shown here — only "Популярно для [industry]".
+    Never shows "Вы уже закупали" — only "Соответствует вашим интересам".
     """
     if not candidate_ids:
         return
 
     profile = await db.get(UserProfile, user_inn)
-    if not profile or not profile.industry:
+    if not profile:
         return
 
-    relevant_cats = INDUSTRY_CATEGORIES.get(profile.industry, [])
+    # Collect all declared interests (from profile_data.interests or fallback to industry)
+    interests: list[str] = []
+    if profile.profile_data and "interests" in profile.profile_data:
+        interests = profile.profile_data["interests"]
+    elif profile.industry:
+        interests = [profile.industry]
+
+    if not interests:
+        return
+
+    # Expand interests to relevant STE categories
+    relevant_cats: list[str] = []
+    for interest in interests:
+        relevant_cats.extend(INDUSTRY_CATEGORIES.get(interest, [interest]))
+    relevant_cats = list(set(relevant_cats))
     if not relevant_cats:
         return
 
@@ -219,11 +233,12 @@ async def _apply_industry_affinity(
         WHERE id = ANY(:ids) AND category = ANY(:cats)
     """), {"ids": candidate_ids, "cats": relevant_cats})
 
-    for ste_id, category in rows.all():
+    label = interests[0] if len(interests) == 1 else f"{interests[0]} и др."
+    for ste_id, _cat in rows.all():
         if ste_id in scores:
             scores[ste_id].boost += 0.25
             scores[ste_id].explanations.append({
-                "reason": f"Популярно для «{profile.industry}»",
+                "reason": f"Соответствует вашим интересам: «{label}»",
                 "factor": "category",
                 "weight": 0.25,
             })

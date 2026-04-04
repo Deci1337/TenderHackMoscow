@@ -13,6 +13,7 @@ router = APIRouter(prefix="/users", tags=["users"])
 async def onboard_user(req: OnboardingRequest, db: AsyncSession = Depends(get_db)):
     """Create or update user profile (cold start / onboarding)."""
     profile = await db.get(UserProfile, req.inn)
+    interests = req.interests or ([req.industry] if req.industry else [])
     if profile:
         if req.industry:
             profile.industry = req.industry
@@ -20,9 +21,13 @@ async def onboard_user(req: OnboardingRequest, db: AsyncSession = Depends(get_db
             profile.name = req.name
         if req.region:
             profile.region = req.region
+        if interests:
+            profile.profile_data = {**(profile.profile_data or {}), "interests": interests}
     else:
         profile = UserProfile(
-            inn=req.inn, name=req.name, region=req.region, industry=req.industry,
+            inn=req.inn, name=req.name, region=req.region,
+            industry=req.industry or (interests[0] if interests else None),
+            profile_data={"interests": interests},
         )
         db.add(profile)
     await db.commit()
