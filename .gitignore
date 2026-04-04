@@ -11,6 +11,7 @@ __pycache__/
 
 # Data (large files)
 *.npy
+*.pkl
 *.csv
 !backend/app/data/catboost_ranker.cbm
 !backend/app/data/frequency_dict_ru.txt
