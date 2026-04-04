@@ -1,5 +1,6 @@
 import asyncio
 import logging
+from concurrent.futures import ThreadPoolExecutor
 from contextlib import asynccontextmanager
 from pathlib import Path
 
@@ -42,23 +43,83 @@ async def _build_ml_indexes():
             return
 
         logger.info(f"Building ML indexes for {len(rows)} STEs...")
-        documents, texts, ids = [], [], []
-        for row in rows:
-            name = row["name"] or ""
-            if not name:
-                continue
-            cat = row["category"]
-            attrs = row["attributes"]
+
+        loop = asyncio.get_event_loop()
+        _executor = ThreadPoolExecutor(max_workers=2)
+
+        # --- NLP document cache -------------------------------------------
+        # Avoids re-processing 537k rows on every restart (~4 min → instant)
+        nlp_cache_path = _DATA_DIR / "ste_nlp_cache.pkl"
+        documents: list = []
+        texts: list[str] = []
+
+        def _load_nlp_cache(path, expected_len: int):
+            import pickle
+            with open(path, "rb") as f:
+                data = pickle.load(f)
+            if len(data) != expected_len:
+                return None
+            return data
+
+        def _save_nlp_cache(path, data):
+            import pickle
+            with open(path, "wb") as f:
+                pickle.dump(data, f, protocol=pickle.HIGHEST_PROTOCOL)
+
+        def _process_rows_nlp(rows_batch):
+            """CPU-heavy: normalize + lemmatize each row."""
+            import pickle  # noqa: F401 (imported for type clarity)
+            result = []
+            for row in rows_batch:
+                name = row["name"] or ""
+                if not name:
+                    continue
+                result.append({
+                    "ste_id": row["id"],
+                    "name": name,
+                    "category": row["category"],
+                    "attributes": str(row["attributes"]) if row["attributes"] else None,
+                    "name_normalized": nlp.normalize_text(name),
+                    "lemmas": nlp.lemmatize(name),
+                })
+            return result
+
+        cached_nlp = None
+        if nlp_cache_path.exists():
+            try:
+                cached_nlp = await loop.run_in_executor(
+                    _executor, _load_nlp_cache, nlp_cache_path, len(rows)
+                )
+                if cached_nlp:
+                    logger.info(f"Loaded {len(cached_nlp)} NLP-processed docs from cache")
+            except Exception as e:
+                logger.warning(f"NLP cache load failed, will recompute: {e}")
+                cached_nlp = None
+
+        if cached_nlp is None:
+            logger.info("NLP processing 537k docs in background thread (first run only)...")
+            chunk_size = 20000
+            raw_docs: list[dict] = []
+            for chunk_start in range(0, len(rows), chunk_size):
+                chunk = rows[chunk_start:chunk_start + chunk_size]
+                batch = await loop.run_in_executor(_executor, _process_rows_nlp, chunk)
+                raw_docs.extend(batch)
+                logger.info(f"  NLP: {min(chunk_start + chunk_size, len(rows))}/{len(rows)}")
+                await asyncio.sleep(0)
+            await loop.run_in_executor(_executor, _save_nlp_cache, nlp_cache_path, raw_docs)
+            logger.info("NLP cache saved to disk")
+            cached_nlp = raw_docs
+
+        for d in cached_nlp:
             doc = STEDocument(
-                ste_id=row["id"], name=name, category=cat,
-                attributes=str(attrs) if attrs else None,
-                name_normalized=nlp.normalize_text(name),
-                lemmas=nlp.lemmatize(name),
+                ste_id=d["ste_id"], name=d["name"], category=d["category"],
+                attributes=d["attributes"], name_normalized=d["name_normalized"],
+                lemmas=d["lemmas"],
             )
             documents.append(doc)
-            texts.append(name)
-            ids.append(row["id"])
+            texts.append(d["name"])
 
+        # --- Embedding cache ----------------------------------------------
         cache_path = _DATA_DIR / "ste_embeddings_cache.npy"
         embs = None
         if cache_path.exists():
@@ -80,6 +141,7 @@ async def _build_ml_indexes():
                 parts.append(embedder.embed(texts[i : i + batch_size]))
                 if (i // batch_size) % 20 == 0:
                     logger.info(f"  embeddings: {min(i + batch_size, len(texts))}/{len(texts)}")
+                    await asyncio.sleep(0)
             embs = np.vstack(parts)
             np.save(str(cache_path), embs)
             logger.info("Embeddings computed and cached to disk")

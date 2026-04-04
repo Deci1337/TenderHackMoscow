@@ -350,9 +350,16 @@ async def _get_candidates(req, pq, corrected_query: str, db: AsyncSession) -> li
         catalog_terms = await expand_from_catalog(db, lemmas)
         all_terms = list(dict.fromkeys(lemmas + manual_syns + catalog_terms))
         if len(all_terms) > len(lemmas):  # only override if we found something new
-            expanded_tsq = " | ".join(
-                t for t in all_terms if t and t.replace(" ", "")
-            )
+            # tsquery atoms must be single words — split multi-word terms and deduplicate
+            single_words: list[str] = []
+            seen: set[str] = set()
+            for t in all_terms:
+                for word in t.split():
+                    w = word.strip()
+                    if w and w not in seen:
+                        single_words.append(w)
+                        seen.add(w)
+            expanded_tsq = " | ".join(single_words)
             log.debug("Expanded tsq: %r -> %r", pq.ts_query, expanded_tsq)
     except Exception as e:
         log.debug("Query expansion failed (non-critical): %s", e)
