@@ -106,7 +106,8 @@ async def search_ste(req: SearchRequest, db: AsyncSession = Depends(get_db)):
                 and cat in DOMAIN_SPECIFIC_CATEGORIES
                 and cat not in user_safe_cats
             )
-            c["base_score"] = 2.0 if is_wrong_domain else 999.0
+            # Wrong-domain exact matches get a very low pin (0.3) so mismatch penalty can overcome it
+            c["base_score"] = 0.3 if is_wrong_domain else 999.0
 
     candidate_ids = [c["id"] for c in candidates]
 
@@ -174,12 +175,16 @@ async def search_ste(req: SearchRequest, db: AsyncSession = Depends(get_db)):
     # --- Stage 5: CatBoost LTR re-rank ---
     scored = _apply_catboost_rerank(candidates, boosts, session_deltas, req.user_inn, corrected_query)
 
-    if req.sort_by == "name":
-        scored.sort(key=lambda x: x[2]["name"] or "")
-    elif req.sort_by == "popularity":
-        scored.sort(key=lambda x: x[1], reverse=True)
-    else:
-        scored.sort(key=lambda x: x[1], reverse=True)
+    def _sort_key(item):
+        _sid, score, _row, exps = item
+        # Items with profile_mismatch badge always rank below items without it.
+        # Within each group results are ordered by score descending.
+        has_mismatch = any(e.get("factor") == "profile_mismatch" for e in exps)
+        if req.sort_by == "name":
+            return (1 if has_mismatch else 0, _row.get("name") or "")
+        return (1 if has_mismatch else 0, -score)
+
+    scored.sort(key=_sort_key)
 
     page = scored[req.offset : req.offset + req.limit]
 
