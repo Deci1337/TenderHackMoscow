@@ -219,7 +219,7 @@ function Main({ user: initialUser, onLogout }: { user: User; onLogout: () => voi
   }, [response]);
 
   const visibleFacets: CategoryFacet[] = onlyInteresting && userCategoryFacets.length > 0
-    ? userCategoryFacets
+    ? userCategoryFacets.sort((a, b) => b.count - a.count)
     : facets;
 
   const doSearch = useCallback(async (q: string, off = 0, sort = sortBy, cat = category) => {
@@ -253,13 +253,16 @@ function Main({ user: initialUser, onLogout }: { user: User; onLogout: () => voi
     setTimeout(() => setToast(null), 3000);
   }
 
-  function boostCategory(cat: string, amount: number) {
+  function boostCategory(cat: string, _amount: number) {
     setUserCategoryFacets(prev => {
-      const existing = prev.find(f => f.name === cat);
-      if (existing) return prev;
+      const idx = prev.findIndex(f => f.name === cat);
+      if (idx >= 0) {
+        const updated = [...prev];
+        updated[idx] = { ...updated[idx], count: updated[idx].count + 1 };
+        return updated;
+      }
       return [...prev, { name: cat, count: 1 }];
     });
-    api.logEvent(user.id, 0, "category_interest", sessionId, query, { category: cat, boost: amount }).catch(() => {});
   }
 
   function trackAction(steId: number, action: string, cat?: string) {

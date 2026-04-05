@@ -42,15 +42,15 @@ async def search_ste(req: SearchRequest, db: AsyncSession = Depends(get_db)):
                 SELECT s.id, s.name, s.category, s.attributes, s.tags,
                        COALESCE(s.order_count, 0) AS order_count
                 FROM ste s
-                WHERE s.category = :cat
+                WHERE s.category ILIKE :cat OR s.category ILIKE :cat_prefix
                 ORDER BY COALESCE(s.order_count, 0) DESC, s.name
                 LIMIT :lim OFFSET :off
             """),
-            {"cat": req.category, "lim": req.limit, "off": req.offset},
+            {"cat": req.category, "cat_prefix": f"{req.category}%", "lim": req.limit, "off": req.offset},
         )).mappings().all()
         total_row = await db.execute(
-            text("SELECT COUNT(*) FROM ste WHERE category = :cat"),
-            {"cat": req.category},
+            text("SELECT COUNT(*) FROM ste WHERE category ILIKE :cat OR category ILIKE :cat_prefix"),
+            {"cat": req.category, "cat_prefix": f"{req.category}%"},
         )
         total = total_row.scalar() or 0
         results = [

@@ -314,6 +314,17 @@ async def lifespan(app: FastAPI):
         await conn.run_sync(Base.metadata.create_all)
     logger.info("Database tables ready")
 
+    # Pre-warm NLP so first search is fast (pymorphy2 + symspell init)
+    try:
+        from app.services.nlp_service import get_nlp_service
+        _executor = ThreadPoolExecutor(max_workers=1)
+        loop = asyncio.get_event_loop()
+        await loop.run_in_executor(_executor, get_nlp_service)
+        logger.info("NLP service pre-warmed")
+        _executor.shutdown(wait=False)
+    except Exception as e:
+        logger.warning("NLP pre-warm failed (will init on first request): %s", e)
+
     ml_task = asyncio.create_task(_build_ml_indexes())
 
     yield

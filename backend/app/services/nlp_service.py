@@ -293,8 +293,18 @@ class NLPService:
         }
 
 
-@lru_cache
+import threading
+_nlp_lock = threading.Lock()
+_nlp_instance: NLPService | None = None
+
 def get_nlp_service() -> NLPService:
-    svc = NLPService()
-    svc.initialize()
-    return svc
+    global _nlp_instance
+    if _nlp_instance is not None:
+        return _nlp_instance
+    with _nlp_lock:
+        if _nlp_instance is not None:
+            return _nlp_instance
+        svc = NLPService()
+        svc.initialize()
+        _nlp_instance = svc
+        return svc
