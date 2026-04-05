@@ -219,7 +219,7 @@ function Main({ user: initialUser, onLogout }: { user: User; onLogout: () => voi
   }, [response]);
 
   const visibleFacets: CategoryFacet[] = onlyInteresting && userCategoryFacets.length > 0
-    ? userCategoryFacets.sort((a, b) => b.count - a.count)
+    ? [...userCategoryFacets].sort((a, b) => b.count - a.count)
     : facets;
 
   const doSearch = useCallback(async (q: string, off = 0, sort = sortBy, cat = category) => {
@@ -255,13 +255,9 @@ function Main({ user: initialUser, onLogout }: { user: User; onLogout: () => voi
 
   function boostCategory(cat: string, _amount: number) {
     setUserCategoryFacets(prev => {
-      const idx = prev.findIndex(f => f.name === cat);
-      if (idx >= 0) {
-        const updated = [...prev];
-        updated[idx] = { ...updated[idx], count: updated[idx].count + 1 };
-        return updated;
-      }
-      return [...prev, { name: cat, count: 1 }];
+      if (prev.some(f => f.name === cat)) return prev;
+      const realCount = facets.find(f => f.name === cat)?.count ?? 0;
+      return [...prev, { name: cat, count: realCount }];
     });
   }
 
