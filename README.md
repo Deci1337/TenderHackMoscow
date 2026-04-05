@@ -32,7 +32,7 @@ flowchart TD
     classDef process fill:#f9f9f9,stroke:#333,stroke-width:1px,color:#000
 
     User((Пользователь)) --> |Ввод запроса| Client
-    Client["🖥️ React 19 Клиент"]:::client -- "POST /search" --> API{"⚡ FastAPI Router"}:::backend
+    Client["React 19 Клиент"]:::client -- "POST /search" --> API{"FastAPI Router"}:::backend
 
     subgraph SearchEngine ["Поисковый движок (Pipeline)"]
         direction TB
@@ -50,9 +50,9 @@ flowchart TD
     API --> S1
     S7 -- "Результаты + Объяснения" --> Client
 
-    S3 <--> PG[("🐘 PostgreSQL 16\n(pg_trgm, pgvector)")]:::db
+    S3 <--> PG[("PostgreSQL 16\n(pg_trgm, pgvector)")]:::db
     S4 <--> PG
-    S5 <--> Redis[("🔴 Redis 7\n(Кэш сессий)")]:::redis
+    S5 <--> Redis[("Redis 7\n(Кэш сессий)")]:::redis
     S7 <--> PG
 ```
 
