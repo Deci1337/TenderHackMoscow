@@ -271,20 +271,20 @@ export function InterestPanel({ userInn, userLabel, lastQuery, sessionClicks, le
       )}
 
       {/* System conclusion */}
-      {(displayData.active_interests.length > 0 || sessionClicks.length > 0) && (
+      {(allCategories.length > 0) && (
         <div style={{ padding: "12px 16px", background: "#E6F7F1", borderTop: "1px solid #B2DFD0", flexShrink: 0 }}>
           <div style={{ fontSize: 10, fontWeight: 700, color: "#0D9B68", textTransform: "uppercase", letterSpacing: 0.8, marginBottom: 6 }}>Вывод системы</div>
           <div style={{ fontSize: 12, color: "#1A1A1A", lineHeight: 1.6 }}>
-            {lastQuery ? (
+            {lastQuery && lastQuery !== "*" ? (
               <>
                 По запросу «<b>{lastQuery}</b>» система приоритизирует категорию{" "}
-                <b>{displayData.active_interests[0] ?? allCategories[0]?.category}</b> —
-                она наиболее активна ({allCategories[0]?.contract_count ?? 0} заказов).
+                <b>{allCategories[0].category}</b> —
+                она наиболее активна ({allCategories[0].contract_count > 0 ? `${allCategories[0].contract_count} заказов в истории` : `${allCategories[0].click_count} взаимодействий в сессии`}).
               </>
             ) : (
               <>
-                Приоритетная категория: <b>{displayData.active_interests[0] ?? allCategories[0]?.category}</b>{" "}
-                ({allCategories[0]?.contract_count ?? 0} заказов в истории).
+                Приоритетная категория: <b>{allCategories[0].category}</b>{" "}
+                ({allCategories[0].contract_count > 0 ? `${allCategories[0].contract_count} заказов в истории` : `${allCategories[0].click_count} взаимодействий в сессии`}).
               </>
             )}
           </div>
