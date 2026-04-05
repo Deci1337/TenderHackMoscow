@@ -63,48 +63,29 @@ const DEMO_PROFILES_BASE: Omit<DemoProfile, "categories" | "contracts">[] = [
 ];
 
 /* ===================  DEMO SELECTOR  =================== */
+const INDUSTRY_ICONS: Record<string, string> = {
+  "Образование": "📚", "Медицина": "🏥", "Строительство": "🏗️", "Не определена": "👤",
+};
+
 function DemoSelector({ onDone }: { onDone: (u: User) => void }) {
-  const [ready, setReady] = useState(false);
-  const [profiles, setProfiles] = useState<DemoProfile[]>([
+  const profiles: DemoProfile[] = [
     ...DEMO_PROFILES_BASE.map(p => ({ ...p, categories: [], contracts: 0 })),
     { id: `new_${Date.now()}`, label: "Новый пользователь", industry: "Не определена",
-      description: "Чистый профиль — наблюдайте как система учится предпочтениям",
+      description: "Чистый профиль — интересы сформируются по вашим действиям",
       categories: [], contracts: 0, isNew: true },
-  ]);
-
-  useEffect(() => {
-    Promise.all(
-      DEMO_PROFILES_BASE.map(async base => {
-        const [cats, profile] = await Promise.all([
-          api.getUserCategories(base.id).catch(() => []),
-          api.getUser(base.id).catch(() => null),
-        ]);
-        return { id: base.id, categories: cats.map(c => c.name), contracts: profile?.total_contracts ?? 0 };
-      })
-    ).then(results => {
-      setProfiles(prev => prev.map(x => {
-        const r = results.find(r => r.id === x.id);
-        return r ? { ...x, categories: r.categories, contracts: r.contracts } : x;
-      }));
-      setReady(true);
-    }).catch(() => setReady(true));
-  }, []);
+  ];
 
   function pick(demo: DemoProfile) {
-    if (demo.isNew) {
-      onDone({ id: `new_${Date.now()}`, label: "Новый пользователь", interests: [] });
-      return;
-    }
-    onDone({ id: demo.id, label: demo.label, interests: demo.categories });
+    onDone({
+      id: demo.isNew ? `new_${Date.now()}` : demo.id,
+      label: demo.label,
+      interests: [],
+    });
   }
-
-  const INDUSTRY_ICONS: Record<string, string> = {
-    "Образование": "📚", "Медицина": "🏥", "Строительство": "🏗️", "Не определена": "👤",
-  };
 
   return (
     <div style={{ minHeight: "100vh", background: "#E7EEF7", display: "flex", alignItems: "center", justifyContent: "center", padding: 16 }}>
-      <div style={{ background: "#fff", borderRadius: 8, boxShadow: "0 4px 24px rgba(0,0,0,.12)", width: "100%", maxWidth: 480, overflow: "hidden" }}>
+      <div style={{ background: "#fff", borderRadius: 8, boxShadow: "0 4px 24px rgba(0,0,0,.12)", width: "100%", maxWidth: 460, overflow: "hidden" }}>
         <div style={{ background: "#264B82", padding: "20px 24px", color: "#fff" }}>
           <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 12 }}>
             <div style={{ width: 28, height: 28, background: "#fff", borderRadius: 4, display: "flex", alignItems: "center", justifyContent: "center", color: "#264B82", fontWeight: 900, fontSize: 12 }}>П</div>
@@ -112,54 +93,30 @@ function DemoSelector({ onDone }: { onDone: (u: User) => void }) {
           </div>
           <div style={{ fontWeight: 700, fontSize: 18 }}>Умный поиск СТЕ</div>
           <div style={{ fontSize: 13, color: "#a3bfe0", marginTop: 4 }}>
-            Система определяет интересы по истории закупок и поведению — без ручного выбора
+            Система определяет интересы по истории закупок и поведению
           </div>
         </div>
         <div style={{ padding: "16px 24px 24px", display: "flex", flexDirection: "column", gap: 10 }}>
           <div style={{ fontSize: 11, fontWeight: 700, color: "#8C8C8C", textTransform: "uppercase", letterSpacing: 0.8, marginBottom: 2 }}>Выберите профиль для демонстрации</div>
           {profiles.map(u => (
-            <button key={u.id} onClick={() => pick(u)} disabled={!ready && !u.isNew}
+            <button key={u.id} onClick={() => pick(u)}
               style={{
                 padding: "12px 14px", borderRadius: 6, textAlign: "left",
                 border: u.isNew ? "1px dashed #D4DBE6" : "1px solid #D4DBE6",
                 background: u.isNew ? "#F8FAFE" : "#fff", cursor: "pointer",
               }}
               onMouseEnter={e => (e.currentTarget.style.borderColor = "#264B82")}
-              onMouseLeave={e => (e.currentTarget.style.borderColor = u.isNew ? "#D4DBE6" : "#D4DBE6")}
+              onMouseLeave={e => (e.currentTarget.style.borderColor = "#D4DBE6")}
             >
-              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
-                <div style={{ flex: 1 }}>
-                  <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 3 }}>
-                    <span style={{ fontSize: 15 }}>{INDUSTRY_ICONS[u.industry] ?? "🏢"}</span>
-                    <span style={{ fontWeight: 700, fontSize: 14, color: "#1A1A1A" }}>{u.label}</span>
-                    {!u.isNew && (
-                      <span style={{ fontSize: 10, background: "#E7EEF7", color: "#264B82", borderRadius: 3, padding: "1px 6px", fontWeight: 600 }}>{u.industry}</span>
-                    )}
-                  </div>
-                  <div style={{ fontSize: 12, color: "#8C8C8C", marginBottom: u.categories.length ? 6 : 0 }}>
-                    {!ready && !u.isNew ? "Загрузка категорий..." : u.description}
-                  </div>
-                  {u.categories.length > 0 && (
-                    <div style={{ display: "flex", flexWrap: "wrap", gap: 4 }}>
-                      {u.categories.slice(0, 4).map(cat => (
-                        <span key={cat} style={{ fontSize: 10, background: "#E6F7F1", color: "#0D9B68", borderRadius: 20, padding: "2px 8px", fontWeight: 600 }}>
-                          {cat}
-                        </span>
-                      ))}
-                    </div>
+              <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                <span style={{ fontSize: 18 }}>{INDUSTRY_ICONS[u.industry] ?? "🏢"}</span>
+                <div>
+                  <span style={{ fontWeight: 700, fontSize: 14, color: "#1A1A1A" }}>{u.label}</span>
+                  {!u.isNew && (
+                    <span style={{ fontSize: 10, background: "#E7EEF7", color: "#264B82", borderRadius: 3, padding: "1px 6px", fontWeight: 600, marginLeft: 6 }}>{u.industry}</span>
                   )}
-                  {u.isNew && (
-                    <div style={{ fontSize: 11, color: "#264B82", marginTop: 4 }}>
-                      Начнём с нуля — интересы сформируются по вашим действиям
-                    </div>
-                  )}
+                  <div style={{ fontSize: 12, color: "#8C8C8C", marginTop: 2 }}>{u.description}</div>
                 </div>
-                {!u.isNew && u.contracts > 0 && (
-                  <div style={{ textAlign: "right", flexShrink: 0, marginLeft: 8 }}>
-                    <div style={{ fontSize: 18, fontWeight: 800, color: "#264B82" }}>{u.contracts}</div>
-                    <div style={{ fontSize: 10, color: "#8C8C8C" }}>контрактов</div>
-                  </div>
-                )}
               </div>
             </button>
           ))}
@@ -178,7 +135,8 @@ function parseRawAttrs(raw: string): Record<string, string> {
   );
 }
 
-function Main({ user, onLogout }: { user: User; onLogout: () => void }) {
+function Main({ user: initialUser, onLogout }: { user: User; onLogout: () => void }) {
+  const [user, setUser] = useState(initialUser);
   const [query, setQuery] = useState("");
   const [inputVal, setInputVal] = useState("");
   const [response, setResponse] = useState<SearchResponse | null>(null);
@@ -217,18 +175,14 @@ function Main({ user, onLogout }: { user: User; onLogout: () => void }) {
   const suggestRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
-    // Immediate: use interests from login as placeholder
-    if (user.interests.length > 0) {
-      setUserCategoryFacets(user.interests.map(n => ({ name: n, count: 0 })));
-    }
-    // Background: fetch real facets and user categories in parallel
     Promise.all([
-      api.facets().catch(() => ({ categories: [] })),
-      api.getUserCategories(user.id).catch(() => []),
+      api.facets().catch(() => ({ categories: [] as CategoryFacet[] })),
+      api.getUserCategories(user.id).catch(() => [] as CategoryFacet[]),
     ]).then(([facetsResp, userCats]) => {
       setFacets(facetsResp.categories);
       if (userCats.length > 0) {
         setUserCategoryFacets(userCats);
+        setUser(prev => ({ ...prev, interests: userCats.map(c => c.name) }));
       }
     });
   }, [user.id]);
