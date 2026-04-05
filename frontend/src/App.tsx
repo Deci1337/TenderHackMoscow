@@ -233,10 +233,14 @@ function Main({ user: initialUser, onLogout }: { user: User; onLogout: () => voi
     try {
       const data = await api.search(searchQuery, user.id, sessionId, PAGE_SIZE, off, sort, cat || undefined, user.interests);
       setResponse(data);
-      // Boost categories found in search results (lightweight interest signal)
+      // Track search: boost categories from results + log to session
       if (data.results.length > 0 && searchQuery !== "*") {
         const cats = new Set(data.results.map(r => r.category).filter(Boolean) as string[]);
         cats.forEach(c => boostCategory(c, 0.5));
+        const topCat = data.results[0]?.category;
+        if (topCat) {
+          setSessionClicks(prev => [...prev, { steId: 0, category: topCat, name: `Поиск: ${searchQuery}` }]);
+        }
       }
     } catch (err: unknown) {
       const isTimeout = err instanceof DOMException && err.name === "AbortError";
@@ -266,12 +270,12 @@ function Main({ user: initialUser, onLogout }: { user: User; onLogout: () => voi
     if (cat) meta.category = cat;
     api.logEvent(user.id, steId, action, sessionId, query, meta).catch(() => {});
     if (cat) {
-      const boost = action === "click" ? 3 : action === "like" ? 2 : 1;
-      boostCategory(cat, boost);
-    }
-    if (action === "click" && cat) {
+      boostCategory(cat, action === "click" ? 3 : action === "like" ? 2 : 1);
       const item = response?.results.find(r => r.id === steId);
-      if (item) setSessionClicks(prev => [...prev, { steId, category: cat, name: item.name }]);
+      setSessionClicks(prev => [...prev, {
+        steId, category: cat,
+        name: item?.name ?? (action === "search" ? `Поиск: ${query}` : cat),
+      }]);
     }
   }
 
@@ -304,7 +308,10 @@ function Main({ user: initialUser, onLogout }: { user: User; onLogout: () => voi
     setCategory(cat);
     setOffset(0);
     setResponse(null);
-    if (cat) boostCategory(cat, 1);
+    if (cat) {
+      boostCategory(cat, 1);
+      setSessionClicks(prev => [...prev, { steId: 0, category: cat, name: `Категория: ${cat}` }]);
+    }
     const q = inputVal.trim() || query || (cat ? "*" : "");
     if (q) doSearch(q, 0, sortBy, cat);
   }
@@ -789,87 +796,136 @@ function ThinkingModal({ item, position, query, correctedQuery, onClose }: {
 
   const maxWeight = Math.max(...item.explanations.map(e => Math.abs(e.weight)), 1);
   const wasCorrected = correctedQuery && correctedQuery !== query;
+  const positiveFactors = item.explanations.filter(e => e.weight > 0);
+  const negativeFactors = item.explanations.filter(e => e.weight < 0);
+  const totalScore = item.explanations.reduce((s, e) => s + e.weight, 0);
+
+  const PIPELINE_STEPS = [
+    { label: "1. Ввод запроса", detail: `Пользователь ввёл «${query}»`, color: "#264B82" },
+    { label: "2. Лемматизация", detail: "pymorphy2 приводит слова к начальной форме: масло → масло, ручка → ручка", color: "#264B82" },
+    { label: "3. Проверка опечаток", detail: wasCorrected ? `SymSpell нашёл ошибку: «${query}» → «${correctedQuery}»` : "SymSpell не нашёл ошибок в запросе", color: wasCorrected ? "#F67319" : "#0D9B68" },
+    { label: "4. Синонимы и контекст", detail: "NLP-модель определяет отрасль пользователя и подбирает контекстные синонимы", color: "#264B82" },
+    { label: "5. Поиск кандидатов", detail: "BM25 (точное текстовое совпадение) + BERT-эмбеддинги (семантическая близость) ищут топ-100 товаров", color: "#264B82" },
+    { label: "6. Персонализация", detail: "История закупок, категории интересов, лайки/дизлайки корректируют позиции", color: "#0D9B68" },
+    { label: "7. ML-ранжирование", detail: "CatBoost модель учитывает 20+ признаков для финального порядка выдачи", color: "#264B82" },
+  ];
 
   return (
     <div onClick={e => { if (e.target === e.currentTarget) onClose(); }}
       style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,.45)", display: "flex", alignItems: "center", justifyContent: "center", padding: 16, zIndex: 1000 }}>
-      <div style={{ background: "#fff", borderRadius: 10, boxShadow: "0 8px 40px rgba(0,0,0,.25)", width: "100%", maxWidth: 560, maxHeight: "92vh", overflow: "auto" }}>
+      <div style={{ background: "#fff", borderRadius: 10, boxShadow: "0 8px 40px rgba(0,0,0,.25)", width: "100%", maxWidth: 620, maxHeight: "92vh", overflow: "auto" }}>
         {/* header */}
         <div style={{ background: "#264B82", padding: "16px 20px", borderRadius: "10px 10px 0 0", display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
           <div>
             <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 4 }}>
               <Brain size={18} color="#fff" />
-              <span style={{ color: "#fff", fontWeight: 700, fontSize: 15 }}>Почему товар на позиции #{position}?</span>
+              <span style={{ color: "#fff", fontWeight: 700, fontSize: 15 }}>Как нейросеть приняла решение</span>
             </div>
-            <p style={{ color: "#a3bfe0", fontSize: 12, margin: 0 }}>Логика ранжирования — простым языком</p>
+            <p style={{ color: "#a3bfe0", fontSize: 12, margin: 0 }}>Подробный разбор: от запроса до позиции #{position}</p>
           </div>
           <button onClick={onClose} style={{ background: "rgba(255,255,255,.15)", border: "none", color: "#fff", cursor: "pointer", borderRadius: 4, padding: 4 }}><X size={16} /></button>
         </div>
 
-        <div style={{ padding: 20, display: "flex", flexDirection: "column", gap: 18 }}>
-          {/* Товар */}
-          <div style={{ background: "#E7EEF7", borderRadius: 6, padding: "10px 14px" }}>
+        <div style={{ padding: 20, display: "flex", flexDirection: "column", gap: 20 }}>
+          {/* Product card */}
+          <div style={{ background: "#E7EEF7", borderRadius: 6, padding: "12px 14px" }}>
             <div style={{ fontWeight: 700, fontSize: 14, color: "#1A1A1A" }}>{item.name}</div>
             {item.category && <div style={{ fontSize: 12, color: "#8C8C8C", marginTop: 2 }}>{item.category}</div>}
             <div style={{ display: "flex", gap: 12, marginTop: 8, flexWrap: "wrap" }}>
-              <span style={{ fontSize: 12, color: "#7F8792" }}>Позиция #{position}</span>
+              <span style={{ fontSize: 12, background: "#264B82", color: "#fff", padding: "2px 8px", borderRadius: 4, fontWeight: 700 }}>Позиция #{position}</span>
               <span style={{ fontSize: 12, fontFamily: "monospace", color: "#264B82" }}>score: {item.score.toFixed(3)}</span>
               {item.avg_price != null && <span style={{ fontSize: 12, color: "#0D9B68", fontWeight: 600 }}>~{item.avg_price.toLocaleString("ru-RU")} ₽</span>}
             </div>
           </div>
 
-          {/* Как система понимала запрос */}
+          {/* NLP Pipeline */}
           <div>
-            <p style={{ fontSize: 11, fontWeight: 700, color: "#8C8C8C", textTransform: "uppercase", margin: "0 0 10px" }}>Как система понимала запрос</p>
-            <div style={{ display: "flex", flexDirection: "column", gap: 7, fontSize: 13 }}>
-              <div style={{ display: "flex", gap: 8 }}>
-                <span style={{ color: "#8C8C8C", minWidth: 130, flexShrink: 0 }}>Исходный запрос:</span>
-                <strong>«{query}»</strong>
-              </div>
-              {wasCorrected ? (
-                <div style={{ display: "flex", gap: 8 }}>
-                  <span style={{ color: "#8C8C8C", minWidth: 130, flexShrink: 0 }}>Исправлено:</span>
-                  <span>«{query}» <span style={{ color: "#8C8C8C" }}>→</span> <strong style={{ color: "#F67319" }}>«{correctedQuery}»</strong></span>
+            <p style={{ fontSize: 11, fontWeight: 700, color: "#8C8C8C", textTransform: "uppercase", margin: "0 0 12px" }}>Пайплайн обработки запроса</p>
+            <div style={{ display: "flex", flexDirection: "column", gap: 0 }}>
+              {PIPELINE_STEPS.map((step, i) => (
+                <div key={i} style={{ display: "flex", gap: 10, paddingBottom: 10, position: "relative" }}>
+                  {i < PIPELINE_STEPS.length - 1 && (
+                    <div style={{ position: "absolute", left: 9, top: 20, bottom: 0, width: 2, background: "#E7EEF7" }} />
+                  )}
+                  <div style={{ width: 20, height: 20, borderRadius: "50%", background: step.color, flexShrink: 0, display: "flex", alignItems: "center", justifyContent: "center" }}>
+                    <span style={{ color: "#fff", fontSize: 9, fontWeight: 800 }}>{i + 1}</span>
+                  </div>
+                  <div style={{ flex: 1 }}>
+                    <div style={{ fontSize: 12, fontWeight: 700, color: "#1A1A1A" }}>{step.label}</div>
+                    <div style={{ fontSize: 11, color: "#7F8792", lineHeight: 1.5 }}>{step.detail}</div>
+                  </div>
                 </div>
-              ) : (
-                <div style={{ display: "flex", gap: 8 }}>
-                  <span style={{ color: "#8C8C8C", minWidth: 130, flexShrink: 0 }}>Опечатки:</span>
-                  <span style={{ color: "#0D9B68" }}>не обнаружены</span>
-                </div>
-              )}
-              <div style={{ display: "flex", gap: 8 }}>
-                <span style={{ color: "#8C8C8C", minWidth: 130, flexShrink: 0 }}>Пайплайн:</span>
-                <span style={{ color: "#7F8792", fontSize: 12 }}>лемматизация → опечатки → синонимы → учёт контекста → BM25 + семантика → профиль → ML-ранжирование</span>
-              </div>
+              ))}
             </div>
           </div>
 
-          {/* Факторы */}
-          <div>
-            <p style={{ fontSize: 11, fontWeight: 700, color: "#8C8C8C", textTransform: "uppercase", marginBottom: 10 }}>Факторы позиции</p>
-            {item.explanations.length === 0 ? (
-              <p style={{ fontSize: 13, color: "#7F8792", fontStyle: "italic" }}>Ранжирование только по текстовому совпадению — других сигналов нет</p>
-            ) : (
-              item.explanations.map((exp, i) => {
-                const isNeg = exp.weight < 0;
-                const barColor = FACTOR_COLORS[exp.factor] ?? (isNeg ? "#DB2B21" : "#264B82");
-                const barW = Math.min(Math.abs(exp.weight) / maxWeight * 100, 100);
-                const label = FACTOR_LABELS[exp.factor] ?? exp.reason;
+          {/* Positive factors */}
+          {positiveFactors.length > 0 && (
+            <div>
+              <p style={{ fontSize: 11, fontWeight: 700, color: "#0D9B68", textTransform: "uppercase", marginBottom: 10 }}>
+                Почему товар ПОДНЯЛСЯ в выдаче
+              </p>
+              {positiveFactors.map((exp, i) => {
+                const barColor = FACTOR_COLORS[exp.factor] ?? "#264B82";
+                const barW = Math.min(exp.weight / maxWeight * 100, 100);
                 return (
-                  <div key={i} style={{ marginBottom: 14 }}>
-                    <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 4 }}>
-                      <span style={{ fontSize: 13, color: "#1A1A1A" }}>{label}</span>
-                      <span style={{ fontSize: 12, fontFamily: "monospace", color: isNeg ? "#DB2B21" : barColor, fontWeight: 700 }}>
-                        {isNeg ? exp.weight.toFixed(2) : `+${exp.weight.toFixed(2)}`}
-                      </span>
+                  <div key={i} style={{ marginBottom: 12 }}>
+                    <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 3 }}>
+                      <span style={{ fontSize: 13, color: "#1A1A1A" }}>{FACTOR_LABELS[exp.factor] ?? exp.reason}</span>
+                      <span style={{ fontSize: 12, fontFamily: "monospace", color: barColor, fontWeight: 700 }}>+{exp.weight.toFixed(2)}</span>
                     </div>
                     <div style={{ height: 6, background: "#E7EEF7", borderRadius: 3, overflow: "hidden" }}>
                       <div style={{ height: "100%", width: `${barW}%`, background: barColor, borderRadius: 3 }} />
                     </div>
+                    <div style={{ fontSize: 10, color: "#8C8C8C", marginTop: 2 }}>{exp.reason}</div>
                   </div>
                 );
-              })
-            )}
+              })}
+            </div>
+          )}
+
+          {/* Negative factors */}
+          {negativeFactors.length > 0 && (
+            <div>
+              <p style={{ fontSize: 11, fontWeight: 700, color: "#DB2B21", textTransform: "uppercase", marginBottom: 10 }}>
+                Что СНИЖАЕТ позицию
+              </p>
+              {negativeFactors.map((exp, i) => {
+                const barW = Math.min(Math.abs(exp.weight) / maxWeight * 100, 100);
+                return (
+                  <div key={i} style={{ marginBottom: 12 }}>
+                    <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 3 }}>
+                      <span style={{ fontSize: 13, color: "#1A1A1A" }}>{FACTOR_LABELS[exp.factor] ?? exp.reason}</span>
+                      <span style={{ fontSize: 12, fontFamily: "monospace", color: "#DB2B21", fontWeight: 700 }}>{exp.weight.toFixed(2)}</span>
+                    </div>
+                    <div style={{ height: 6, background: "#FDECEA", borderRadius: 3, overflow: "hidden" }}>
+                      <div style={{ height: "100%", width: `${barW}%`, background: "#DB2B21", borderRadius: 3 }} />
+                    </div>
+                    <div style={{ fontSize: 10, color: "#8C8C8C", marginTop: 2 }}>{exp.reason}</div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+
+          {/* No signals */}
+          {item.explanations.length === 0 && (
+            <div style={{ background: "#F8FAFE", borderRadius: 6, padding: 14 }}>
+              <p style={{ fontSize: 13, color: "#7F8792", margin: 0 }}>
+                Ранжирование только по текстовому совпадению (BM25 + семантика). Персональных сигналов пока нет — начните взаимодействовать с товарами, чтобы система начала подстраиваться.
+              </p>
+            </div>
+          )}
+
+          {/* Summary */}
+          <div style={{ background: "#F8FAFE", borderRadius: 6, padding: "12px 14px", borderLeft: "3px solid #264B82" }}>
+            <div style={{ fontSize: 11, fontWeight: 700, color: "#264B82", textTransform: "uppercase", marginBottom: 6 }}>Итог</div>
+            <div style={{ fontSize: 12, color: "#1A1A1A", lineHeight: 1.6 }}>
+              Итоговый балл: <b>{item.score.toFixed(3)}</b>
+              {item.explanations.length > 0 && (<> (базовый + персонализация: <b style={{ color: totalScore >= 0 ? "#0D9B68" : "#DB2B21" }}>{totalScore >= 0 ? "+" : ""}{totalScore.toFixed(2)}</b>)</>)}.
+              {" "}Товар занял позицию <b>#{position}</b> из всех кандидатов.
+              {positiveFactors.length > 0 && (<> Основной фактор повышения: <b>{FACTOR_LABELS[positiveFactors[0].factor] ?? positiveFactors[0].reason}</b>.</>)}
+            </div>
           </div>
         </div>
       </div>

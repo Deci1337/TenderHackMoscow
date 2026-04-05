@@ -110,19 +110,14 @@ async def search_ste(req: SearchRequest, db: AsyncSession = Depends(get_db)):
     # --- Stage 2: Candidate retrieval with zero-result cascade ---
     candidates = await _get_candidates(req, pq, corrected_query, db, query_data)
 
-    # Cascade 1: category filter too strict -> retry without it
-    if not candidates and req.category:
-        log.debug("Zero results with category filter, retrying without")
-        relaxed = req.model_copy(update={"category": None})
-        candidates = await _get_candidates(relaxed, pq, corrected_query, db, query_data)
-
-    # Cascade 2: multi-word query too specific -> retry with only the most meaningful word
-    if not candidates and len(pq.lemmatized.split()) > 1:
-        core_word = max(pq.lemmatized.split(), key=len)
-        log.debug("Zero results for '%s', retrying with core word '%s'", corrected_query, core_word)
-        core_pq = process_query(core_word)
-        relaxed2 = req.model_copy(update={"category": None})
-        candidates = await _get_candidates(relaxed2, core_pq, core_word, db, query_data)
+    # Only cascade (relax filters) when user did NOT explicitly set a category
+    if not candidates and not req.category:
+        # Cascade: multi-word query too specific -> retry with the most meaningful word
+        if len(pq.lemmatized.split()) > 1:
+            core_word = max(pq.lemmatized.split(), key=len)
+            log.debug("Zero results for '%s', retrying with core word '%s'", corrected_query, core_word)
+            core_pq = process_query(core_word)
+            candidates = await _get_candidates(req, core_pq, core_word, db, query_data)
 
     if not candidates:
         return SearchResponse(query=req.query, total=0, results=[])
