@@ -61,14 +61,31 @@ async def get_user_interests(inn: str, db: AsyncSession = Depends(get_db)):
     return data
 
 
+_category_counts_cache: dict[str, int] | None = None
+_category_counts_ts: float = 0
+
+
+async def _get_category_counts(db: AsyncSession) -> dict[str, int]:
+    """Cached STE category counts (refreshed every 5 min)."""
+    import time
+    global _category_counts_cache, _category_counts_ts
+    now = time.time()
+    if _category_counts_cache is not None and now - _category_counts_ts < 300:
+        return _category_counts_cache
+    rows = await db.execute(text(
+        "SELECT category, COUNT(*) AS cnt FROM ste WHERE category IS NOT NULL GROUP BY category"
+    ))
+    _category_counts_cache = {r.category: int(r.cnt) for r in rows.fetchall()}
+    _category_counts_ts = now
+    return _category_counts_cache
+
+
 @router.get("/{inn}/categories", response_model=list[CategoryFacet])
 async def get_user_categories(inn: str, db: AsyncSession = Depends(get_db)):
     """
     Return categories relevant to this user with real STE item counts.
-    Combines contract history categories + industry-mapped categories.
-    Each category has its actual count of items in the STE catalog.
+    Single query for user data, cached global category counts.
     """
-    # Get categories from contract history
     result = await db.execute(text("""
         SELECT DISTINCT s.category
         FROM contracts c
@@ -85,15 +102,8 @@ async def get_user_categories(inn: str, db: AsyncSession = Depends(get_db)):
     if not allowed:
         allowed = contract_cats
 
-    # Get all STE categories with counts
-    all_cats = await db.execute(text("""
-        SELECT category, COUNT(*) AS cnt
-        FROM ste WHERE category IS NOT NULL
-        GROUP BY category
-    """))
-    cat_counts: dict[str, int] = {r.category: int(r.cnt) for r in all_cats.fetchall()}
+    cat_counts = await _get_category_counts(db)
 
-    # Match allowed categories to real STE categories (partial match both ways)
     matched: list[CategoryFacet] = []
     used_real: set[str] = set()
     for allowed_name in allowed:
@@ -102,7 +112,7 @@ async def get_user_categories(inn: str, db: AsyncSession = Depends(get_db)):
         best_count = 0
         for real_name, cnt in cat_counts.items():
             rl = real_name.lower()
-            if rl == al or rl.startswith(al) or al.startswith(rl) or al in rl or rl in al:
+            if rl == al or al in rl or rl in al:
                 if real_name not in used_real and cnt > best_count:
                     best_name = real_name
                     best_count = cnt

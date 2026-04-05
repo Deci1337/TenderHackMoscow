@@ -64,7 +64,7 @@ const DEMO_PROFILES_BASE: Omit<DemoProfile, "categories" | "contracts">[] = [
 
 /* ===================  DEMO SELECTOR  =================== */
 function DemoSelector({ onDone }: { onDone: (u: User) => void }) {
-  const [loadingId, setLoadingId] = useState<string | null>(null);
+  const [ready, setReady] = useState(false);
   const [profiles, setProfiles] = useState<DemoProfile[]>([
     ...DEMO_PROFILES_BASE.map(p => ({ ...p, categories: [], contracts: 0 })),
     { id: `new_${Date.now()}`, label: "Новый пользователь", industry: "Не определена",
@@ -73,31 +73,29 @@ function DemoSelector({ onDone }: { onDone: (u: User) => void }) {
   ]);
 
   useEffect(() => {
-    DEMO_PROFILES_BASE.forEach(async base => {
-      const cats = await api.getUserCategories(base.id).catch(() => []);
-      const catNames = cats.map(c => c.name);
-      const profile = await api.getUser(base.id).catch(() => null);
-      setProfiles(prev => prev.map(x => x.id === base.id
-        ? { ...x, categories: catNames, contracts: profile?.total_contracts ?? 0 }
-        : x
-      ));
-    });
+    Promise.all(
+      DEMO_PROFILES_BASE.map(async base => {
+        const [cats, profile] = await Promise.all([
+          api.getUserCategories(base.id).catch(() => []),
+          api.getUser(base.id).catch(() => null),
+        ]);
+        return { id: base.id, categories: cats.map(c => c.name), contracts: profile?.total_contracts ?? 0 };
+      })
+    ).then(results => {
+      setProfiles(prev => prev.map(x => {
+        const r = results.find(r => r.id === x.id);
+        return r ? { ...x, categories: r.categories, contracts: r.contracts } : x;
+      }));
+      setReady(true);
+    }).catch(() => setReady(true));
   }, []);
 
-  async function pick(demo: DemoProfile) {
-    setLoadingId(demo.id);
+  function pick(demo: DemoProfile) {
     if (demo.isNew) {
-      const newId = `new_${Date.now()}`;
-      onDone({ id: newId, label: "Новый пользователь", interests: [] });
+      onDone({ id: `new_${Date.now()}`, label: "Новый пользователь", interests: [] });
       return;
     }
-    const cats = await api.getUserCategories(demo.id).catch(() => []);
-    const catNames = cats.map(c => c.name);
-    onDone({
-      id: demo.id,
-      label: demo.label,
-      interests: catNames.length > 0 ? catNames : demo.categories,
-    });
+    onDone({ id: demo.id, label: demo.label, interests: demo.categories });
   }
 
   const INDUSTRY_ICONS: Record<string, string> = {
@@ -120,7 +118,7 @@ function DemoSelector({ onDone }: { onDone: (u: User) => void }) {
         <div style={{ padding: "16px 24px 24px", display: "flex", flexDirection: "column", gap: 10 }}>
           <div style={{ fontSize: 11, fontWeight: 700, color: "#8C8C8C", textTransform: "uppercase", letterSpacing: 0.8, marginBottom: 2 }}>Выберите профиль для демонстрации</div>
           {profiles.map(u => (
-            <button key={u.id} onClick={() => pick(u)} disabled={loadingId === u.id}
+            <button key={u.id} onClick={() => pick(u)} disabled={!ready && !u.isNew}
               style={{
                 padding: "12px 14px", borderRadius: 6, textAlign: "left",
                 border: u.isNew ? "1px dashed #D4DBE6" : "1px solid #D4DBE6",
@@ -139,7 +137,7 @@ function DemoSelector({ onDone }: { onDone: (u: User) => void }) {
                     )}
                   </div>
                   <div style={{ fontSize: 12, color: "#8C8C8C", marginBottom: u.categories.length ? 6 : 0 }}>
-                    {loadingId === u.id ? "Загрузка..." : u.description}
+                    {!ready && !u.isNew ? "Загрузка категорий..." : u.description}
                   </div>
                   {u.categories.length > 0 && (
                     <div style={{ display: "flex", flexWrap: "wrap", gap: 4 }}>
@@ -218,18 +216,21 @@ function Main({ user, onLogout }: { user: User; onLogout: () => void }) {
   const inputRef = useRef<HTMLInputElement>(null);
   const suggestRef = useRef<HTMLDivElement>(null);
 
-  useEffect(() => { api.facets().then(r => setFacets(r.categories)).catch(() => {}); }, []);
-
   useEffect(() => {
-    api.getUserCategories(user.id)
-      .then(cats => {
-        if (cats.length > 0) {
-          setUserCategoryFacets(cats);
-        } else {
-          setUserCategoryFacets(user.interests.map(n => ({ name: n, count: 0 })));
-        }
-      })
-      .catch(() => setUserCategoryFacets(user.interests.map(n => ({ name: n, count: 0 }))));
+    // Immediate: use interests from login as placeholder
+    if (user.interests.length > 0) {
+      setUserCategoryFacets(user.interests.map(n => ({ name: n, count: 0 })));
+    }
+    // Background: fetch real facets and user categories in parallel
+    Promise.all([
+      api.facets().catch(() => ({ categories: [] })),
+      api.getUserCategories(user.id).catch(() => []),
+    ]).then(([facetsResp, userCats]) => {
+      setFacets(facetsResp.categories);
+      if (userCats.length > 0) {
+        setUserCategoryFacets(userCats);
+      }
+    });
   }, [user.id]);
 
   useEffect(() => {
