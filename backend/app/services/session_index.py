@@ -35,15 +35,22 @@ async def record_event(
     ste_id: int,
     event_type: str,
 ) -> None:
-    """Push a user interaction event into the session index in Redis."""
+    """Push a user interaction event into the session index in Redis.
+
+    Each (ste_id, signal_type) pair is capped at 3 to prevent score inflation
+    from repeated clicks.
+    """
     key = _session_key(user_inn, session_id)
     try:
         r = await get_redis()
-        async with r.pipeline(transaction=True) as pipe:
-            field = "boosted" if event_type in {"click", "compare", "like", "view"} else "penalized"
-            await pipe.hincrby(key, f"{field}:{ste_id}", 1)
-            await pipe.expire(key, TTL_SECONDS)
-            await pipe.execute()
+        field = "boosted" if event_type in {"click", "compare", "like", "view"} else "penalized"
+        field_key = f"{field}:{ste_id}"
+        current = int(await r.hget(key, field_key) or 0)
+        if current < 3:
+            async with r.pipeline(transaction=True) as pipe:
+                await pipe.hincrby(key, field_key, 1)
+                await pipe.expire(key, TTL_SECONDS)
+                await pipe.execute()
         await r.aclose()
     except Exception as e:
         log.warning("Redis session record failed (non-critical): %s", e)
@@ -248,18 +255,25 @@ async def get_momentum_boosts(
 
 
 async def record_like_dislike(user_inn: str, ste_id: int, action: str) -> None:
-    """Persist like or dislike as a scored Redis signal with 7-day TTL."""
+    """Persist like or dislike as a fixed-score Redis signal with 7-day TTL.
+
+    Uses ZADD (set) not ZINCRBY (increment) so repeated clicks don't accumulate.
+    """
     ttl = 86400 * 7
     try:
         r = await get_redis()
         if action == "like":
-            key = f"user:{user_inn}:likes"
-            await r.zincrby(key, 1.5, str(ste_id))
-            await r.expire(key, ttl)
+            like_key = f"user:{user_inn}:likes"
+            dislike_key = f"user:{user_inn}:dislikes"
+            await r.zadd(like_key, {str(ste_id): 1.5})
+            await r.zrem(dislike_key, str(ste_id))
+            await r.expire(like_key, ttl)
         elif action == "dislike":
-            key = f"user:{user_inn}:dislikes"
-            await r.zincrby(key, 1.0, str(ste_id))
-            await r.expire(key, ttl)
+            dislike_key = f"user:{user_inn}:dislikes"
+            like_key = f"user:{user_inn}:likes"
+            await r.zadd(dislike_key, {str(ste_id): 1.0})
+            await r.zrem(like_key, str(ste_id))
+            await r.expire(dislike_key, ttl)
         await r.aclose()
     except Exception as e:
         log.warning("Redis like/dislike record failed (non-critical): %s", e)

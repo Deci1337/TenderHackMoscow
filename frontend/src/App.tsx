@@ -152,6 +152,7 @@ function Main({ user: initialUser, onLogout }: { user: User; onLogout: () => voi
   const [showSuggestions, setShowSuggestions] = useState(false);
   const [likedIds, setLikedIds] = useState<Set<number>>(new Set());
   const [dislikedIds, setDislikedIds] = useState<Set<number>>(new Set());
+  const viewedIds = useRef<Set<number>>(new Set());
   const [toast, setToast] = useState<string | null>(null);
   const [history] = useState<string[]>(() => {
     try { return JSON.parse(localStorage.getItem("sh") || "[]"); } catch { return []; }
@@ -266,6 +267,8 @@ function Main({ user: initialUser, onLogout }: { user: User; onLogout: () => voi
   }
 
   function trackAction(steId: number, action: string, cat?: string) {
+    if (action === "click" && viewedIds.current.has(steId)) return;
+    if (action === "click") viewedIds.current.add(steId);
     const meta: Record<string, unknown> = {};
     if (cat) meta.category = cat;
     api.logEvent(user.id, steId, action, sessionId, query, meta).catch(() => {});
@@ -280,6 +283,7 @@ function Main({ user: initialUser, onLogout }: { user: User; onLogout: () => voi
   }
 
   function handleLike(steId: number, cat?: string) {
+    if (likedIds.has(steId)) return;
     setLikedIds(prev => { const s = new Set(prev); s.add(steId); return s; });
     setDislikedIds(prev => { const s = new Set(prev); s.delete(steId); return s; });
     trackAction(steId, "like", cat);
@@ -288,6 +292,7 @@ function Main({ user: initialUser, onLogout }: { user: User; onLogout: () => voi
   }
 
   function handleDislike(steId: number, cat?: string) {
+    if (dislikedIds.has(steId)) return;
     setDislikedIds(prev => { const s = new Set(prev); s.add(steId); return s; });
     setLikedIds(prev => { const s = new Set(prev); s.delete(steId); return s; });
     trackAction(steId, "dislike", cat);

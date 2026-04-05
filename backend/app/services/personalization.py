@@ -347,24 +347,29 @@ async def _apply_session_events(
     POSITIVE = {"click": 0.2, "compare": 0.25, "like": 0.3}
     NEGATIVE = {"bounce": -0.4, "hide": -0.8}
 
+    agg: dict[int, dict[str, int]] = {}
     for ste_id, event_type in rows.all():
         if ste_id not in scores:
             continue
-        if event_type in POSITIVE:
-            w = POSITIVE[event_type]
-            scores[ste_id].boost += w
+        agg.setdefault(ste_id, {})
+        agg[ste_id][event_type] = agg[ste_id].get(event_type, 0) + 1
+
+    for ste_id, events in agg.items():
+        pos_total = sum(POSITIVE.get(e, 0) for e in events)
+        neg_total = sum(abs(NEGATIVE.get(e, 0)) for e in events)
+        if pos_total > 0:
+            scores[ste_id].boost += min(pos_total, 0.5)
             scores[ste_id].explanations.append({
                 "reason": "Вы взаимодействовали с этим товаром",
                 "factor": "session",
-                "weight": w,
+                "weight": min(pos_total, 0.5),
             })
-        elif event_type in NEGATIVE:
-            w = abs(NEGATIVE[event_type])
-            scores[ste_id].penalty += w
+        if neg_total > 0:
+            scores[ste_id].penalty += min(neg_total, 0.8)
             scores[ste_id].explanations.append({
                 "reason": "Снижено: вы отклонили похожий товар",
                 "factor": "negative",
-                "weight": -w,
+                "weight": -min(neg_total, 0.8),
             })
 
 
