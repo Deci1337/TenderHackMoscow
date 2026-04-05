@@ -22,26 +22,38 @@
 
 ## Архитектура решения
 
-```text
- Клиент (браузер)
- React 19 + Vite + TypeScript
-          |  HTTP /api/v1/*
-          v
- FastAPI Backend (Python 3.11)
- +------------------------------------------+
- | Search Pipeline                          |
- | 1. pymorphy2 лемматизация + исправление  |
- | 2. Фразовые перезаписи + синонимы        |
- | 3. pg_trgm + tsvector BM25 retrieval     |
- | 4. rubert-tiny2 семантический re-rank    |
- | 5. Персонализация (история + сессия)     |
- | 6. CatBoost Learning-to-Rank             |
- | 7. Collective learning (дообучение)      |
- +------------------------------------------+
-          |                    |
- PostgreSQL 16            Redis 7
- + pgvector               (session state,
- + pg_trgm                 dynamic indexing)
+```mermaid
+flowchart TD
+    %% Define styles
+    classDef client fill:#61dafb,stroke:#000,stroke-width:2px,color:#000
+    classDef backend fill:#009688,stroke:#000,stroke-width:2px,color:#fff
+    classDef db fill:#336791,stroke:#000,stroke-width:2px,color:#fff
+    classDef redis fill:#dc382d,stroke:#000,stroke-width:2px,color:#fff
+    classDef process fill:#f9f9f9,stroke:#333,stroke-width:1px,color:#000
+
+    User((Пользователь)) --> |Ввод запроса| Client
+    Client["🖥️ React 19 Клиент"]:::client -- "POST /search" --> API{"⚡ FastAPI Router"}:::backend
+
+    subgraph SearchEngine ["Поисковый движок (Pipeline)"]
+        direction TB
+        S1["1. Лемматизация и опечатки (pymorphy2)"]:::process
+        S2["2. Расширение синонимами"]:::process
+        S3["3. Поиск кандидатов BM25 (tsvector)"]:::process
+        S4["4. Семантический Re-rank (rubert-tiny2)"]:::process
+        S5["5. Персонализация (История + Сессия)"]:::process
+        S6["6. ML Ранжирование (CatBoost)"]:::process
+        S7["7. Учет коллективного опыта"]:::process
+
+        S1 --> S2 --> S3 --> S4 --> S5 --> S6 --> S7
+    end
+
+    API --> S1
+    S7 -- "Результаты + Объяснения" --> Client
+
+    S3 <--> PG[("🐘 PostgreSQL 16\n(pg_trgm, pgvector)")]:::db
+    S4 <--> PG
+    S5 <--> Redis[("🔴 Redis 7\n(Кэш сессий)")]:::redis
+    S7 <--> PG
 ```
 
 ---
