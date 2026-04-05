@@ -91,13 +91,17 @@ async def search_ste(req: SearchRequest, db: AsyncSession = Depends(get_db)):
     # Primary industry for context-aware NLP (first declared interest)
     user_industry = req.interests[0] if req.interests else None
 
+    query_data = None
     try:
-        from app.services.nlp_service import get_nlp_service
-        nlp = get_nlp_service()
-        query_data = nlp.process_query(req.query, user_industry=user_industry)
-        corrected_query = query_data.get("corrected", corrected_query)
-        was_corrected = query_data.get("was_corrected", False)
-        applied_synonyms = query_data.get("applied_synonyms", [])
+        from app.services.nlp_service import _nlp_instance
+        nlp = _nlp_instance
+        if nlp is not None and nlp._initialized:
+            query_data = nlp.process_query(req.query, user_industry=user_industry)
+            corrected_query = query_data.get("corrected", corrected_query)
+            was_corrected = query_data.get("was_corrected", False)
+            applied_synonyms = query_data.get("applied_synonyms", [])
+        else:
+            log.debug("NLP not ready yet, using raw query")
     except Exception:
         pass
 
@@ -563,14 +567,15 @@ async def _get_candidates(req, pq, corrected_query: str, db: AsyncSession,
         try:
             from app.services.embedding_service import get_embedding_service
             embedder = get_embedding_service()
-            q_vec = embedder.embed_single(corrected_query)
-            ranked = sorted(range(len(candidates)), key=lambda i: candidates[i]["base_score"], reverse=True)
-            top_idx = ranked[:20]
-            names = [candidates[i]["name"] for i in top_idx]
-            doc_vecs = embedder.embed(names)
-            sims = doc_vecs @ q_vec
-            for rank_pos, orig_i in enumerate(top_idx):
-                candidates[orig_i]["semantic_score"] = max(float(sims[rank_pos]), 0.0)
+            if embedder._model is not None:
+                q_vec = embedder.embed_single(corrected_query)
+                ranked = sorted(range(len(candidates)), key=lambda i: candidates[i]["base_score"], reverse=True)
+                top_idx = ranked[:20]
+                names = [candidates[i]["name"] for i in top_idx]
+                doc_vecs = embedder.embed(names)
+                sims = doc_vecs @ q_vec
+                for rank_pos, orig_i in enumerate(top_idx):
+                    candidates[orig_i]["semantic_score"] = max(float(sims[rank_pos]), 0.0)
         except Exception:
             pass
 
@@ -587,11 +592,14 @@ async def get_thinking(
     """Explain ranking decision for a specific STE item and query."""
     from fastapi import HTTPException
 
-    from app.services.nlp_service import get_nlp_service
+    from app.services.nlp_service import _nlp_instance
 
-    nlp = get_nlp_service()
-    query_data = nlp.process_query(query)
-    pq = process_query(query_data.get("corrected", query))
+    nlp = _nlp_instance
+    if nlp is not None and nlp._initialized:
+        query_data = nlp.process_query(query)
+        pq = process_query(query_data.get("corrected", query))
+    else:
+        pq = process_query(query)
 
     row = (
         await db.execute(

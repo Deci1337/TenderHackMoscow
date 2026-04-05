@@ -106,14 +106,14 @@ export const api = {
     category?: string,
     interests: string[] = [],
   ) {
-    return request<SearchResponse>("/search", {
-      method: "POST",
-      body: JSON.stringify({
-        query, user_inn: userInn, session_id: sessionId,
-        limit, offset, sort_by: sortBy, interests,
-        ...(category ? { category } : {}),
-      }),
+    const body = JSON.stringify({
+      query, user_inn: userInn, session_id: sessionId,
+      limit, offset, sort_by: sortBy, interests,
+      ...(category ? { category } : {}),
     });
+    return request<SearchResponse>("/search", { method: "POST", body, timeoutMs: 12000 }).catch(() =>
+      request<SearchResponse>("/search", { method: "POST", body, timeoutMs: 40000 })
+    );
   },
 
   logEvent(userInn: string, steId: number, eventType: string, sessionId: string, query?: string, meta?: Record<string, unknown>) {
