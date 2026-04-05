@@ -35,6 +35,39 @@ async def search_ste(req: SearchRequest, db: AsyncSession = Depends(get_db)):
       5. CatBoost LTR re-rank (always applied when model is loaded)
       6. Build response with explanations
     """
+    # --- Fast path: browse by category (query="*") ---
+    if req.query.strip() == "*" and req.category:
+        rows = (await db.execute(
+            text("""
+                SELECT s.id, s.name, s.category, s.attributes, s.tags,
+                       COALESCE(s.order_count, 0) AS order_count
+                FROM ste s
+                WHERE s.category = :cat
+                ORDER BY COALESCE(s.order_count, 0) DESC, s.name
+                LIMIT :lim OFFSET :off
+            """),
+            {"cat": req.category, "lim": req.limit, "off": req.offset},
+        )).mappings().all()
+        total_row = await db.execute(
+            text("SELECT COUNT(*) FROM ste WHERE category = :cat"),
+            {"cat": req.category},
+        )
+        total = total_row.scalar() or 0
+        results = [
+            STEResult(
+                id=r["id"], name=r["name"], category=r["category"],
+                attributes=r["attributes"], score=0.5,
+                explanations=[RankingExplanation(
+                    reason=f"Товар из категории «{req.category}»",
+                    factor="category_browse", weight=0.5,
+                )],
+                snippet=None, avg_price=None, price_trend=None,
+                tags=r["tags"] or [],
+            )
+            for r in rows
+        ]
+        return SearchResponse(query=req.query, total=total, results=results)
+
     try:
         import redis.asyncio as aioredis
         from app.config import get_settings

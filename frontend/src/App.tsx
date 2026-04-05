@@ -290,19 +290,22 @@ function Main({ user, onLogout }: { user: User; onLogout: () => void }) {
     : facets;
 
   const doSearch = useCallback(async (q: string, off = 0, sort = sortBy, cat = category) => {
-    if (!q.trim()) return;
-    setQuery(q); setOffset(off); setLoading(true); setShowSuggestions(false);
-    const h = [q, ...history.filter(x => x !== q)].slice(0, 8);
-    localStorage.setItem("sh", JSON.stringify(h));
+    if (!q.trim() && !cat) return;
+    const searchQuery = q.trim() || "*";
+    setQuery(searchQuery); setOffset(off); setLoading(true); setShowSuggestions(false);
+    if (searchQuery !== "*") {
+      const h = [searchQuery, ...history.filter(x => x !== searchQuery)].slice(0, 8);
+      localStorage.setItem("sh", JSON.stringify(h));
+    }
     try {
-      const data = await api.search(q, user.id, sessionId, PAGE_SIZE, off, sort, cat || undefined, user.interests);
+      const data = await api.search(searchQuery, user.id, sessionId, PAGE_SIZE, off, sort, cat || undefined, user.interests);
       setResponse(data);
     } catch (err: unknown) {
       const isTimeout = err instanceof DOMException && err.name === "AbortError";
       if (isTimeout) {
-        setResponse({ query: q, corrected_query: null, did_you_mean: null, total: -1, results: [] });
+        setResponse({ query: searchQuery, corrected_query: null, did_you_mean: null, total: -1, results: [] });
       } else {
-        setResponse({ query: q, corrected_query: null, did_you_mean: null, total: 0, results: [] });
+        setResponse({ query: searchQuery, corrected_query: null, did_you_mean: null, total: 0, results: [] });
       }
     } finally { setLoading(false); }
   }, [user.id, sessionId, sortBy, category, history, user.interests]);
@@ -352,8 +355,8 @@ function Main({ user, onLogout }: { user: User; onLogout: () => void }) {
     setCategory(cat);
     setOffset(0);
     setResponse(null);
-    if (inputVal.trim()) doSearch(inputVal.trim(), 0, sortBy, cat);
-    else if (query) doSearch(query, 0, sortBy, cat);
+    const q = inputVal.trim() || query || (cat ? "*" : "");
+    if (q) doSearch(q, 0, sortBy, cat);
   }
 
   function selectSort(s: string) {
@@ -515,8 +518,11 @@ function Main({ user, onLogout }: { user: User; onLogout: () => void }) {
             <>
               <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>
                 <p style={{ fontSize: 13, color: "#8C8C8C", margin: 0 }}>
-                  Результаты по запросу «<strong style={{ color: "#1A1A1A" }}>{response.query}</strong>»
-                  {category && <span> в категории «{category}»</span>}
+                  {query === "*" && category
+                    ? <>Товары категории «<strong style={{ color: "#1A1A1A" }}>{category}</strong>»</>
+                    : <>Результаты по запросу «<strong style={{ color: "#1A1A1A" }}>{response.query}</strong>»
+                      {category && <span> в категории «{category}»</span>}</>
+                  }
                 </p>
               </div>
               <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
@@ -623,7 +629,7 @@ function Main({ user, onLogout }: { user: User; onLogout: () => void }) {
 
           {!loading && response && response.total === 0 && response.results.length === 0 && (
             <EmptyBox icon={<PackageSearch size={48} style={{ color: "#D4DBE6" }} />}
-              title={`По запросу «${query}» ничего не найдено`}
+              title={query === "*" && category ? `В категории «${category}» ничего не найдено` : `По запросу «${query}» ничего не найдено`}
               subtitle="Попробуйте другой запрос или снимите фильтр категории"
               onPick={(q) => { setInputVal(q); doSearch(q); }} />
           )}
