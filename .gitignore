@@ -22,3 +22,13 @@ dist/
 *.tsbuildinfo
 
 .DS_Store
+
+# Logs / temp output
+*.log
+*_stdout.txt
+*_stderr.txt
+*_output.txt
+
+# IDE
+.vscode/
+.idea/

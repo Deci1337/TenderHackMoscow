@@ -1,45 +1,37 @@
-# TenderHack Moscow — Персонализированный умный поиск СТЕ
+# TenderHack Moscow -- Персонализированный умный поиск СТЕ
 
 Сервис персонализированного поиска для Портала Поставщиков (zakupki.mos.ru).  
-Разработан в рамках хакатона TenderHackMoscow (48 ч).
+Разработан в рамках хакатона TenderHackMoscow.
 
 ---
 
 ## Архитектура
 
 ```
-┌─────────────────────────────────────────────────────┐
-│                    Клиент (браузер)                  │
-│  React 19 + Vite + TypeScript + Tailwind CSS         │
-└──────────────────────┬──────────────────────────────┘
-                       │ HTTP  /api/v1/*
-┌──────────────────────▼──────────────────────────────┐
-│              FastAPI Backend (Python 3.11)            │
-│  ┌─────────────────────────────────────────────────┐ │
-│  │  Search Pipeline                                │ │
-│  │  1. pymorphy2 query normalization               │ │
-│  │  2. pg_trgm + tsvector candidate retrieval      │ │
-│  │  3. [Dev2] rubert-tiny2 semantic re-rank        │ │
-│  │  4. SQL rule-based personalization boosts       │ │
-│  │  5. Redis session dynamic indexing              │ │
-│  │  6. [Dev2] CatBoost LTR re-rank                 │ │
-│  └─────────────────────────────────────────────────┘ │
-└──────────┬────────────────────────┬─────────────────┘
-           │                        │
-┌──────────▼──────────┐  ┌──────────▼──────────────┐
-│  PostgreSQL 16       │  │  Redis 7                 │
-│  + pgvector          │  │  (session state,         │
-│  + pg_trgm           │  │   dynamic indexing)      │
-│  Tables: ste,        │  └─────────────────────────┘
-│  contracts,          │
-│  user_profiles,      │
-│  events              │
-└─────────────────────┘
+ Клиент (браузер)
+ React 19 + Vite + TypeScript
+          |  HTTP /api/v1/*
+          v
+ FastAPI Backend (Python 3.11)
+ +------------------------------------------+
+ | Search Pipeline                          |
+ | 1. pymorphy2 лемматизация + исправление  |
+ | 2. Фразовые перезаписи + синонимы        |
+ | 3. pg_trgm + tsvector BM25 retrieval     |
+ | 4. rubert-tiny2 семантический re-rank    |
+ | 5. Персонализация (история + сессия)     |
+ | 6. CatBoost Learning-to-Rank             |
+ | 7. Collective learning (дообучение)      |
+ +------------------------------------------+
+          |                    |
+ PostgreSQL 16            Redis 7
+ + pgvector               (session state,
+ + pg_trgm                 dynamic indexing)
 ```
 
 ---
 
-## Быстрый старт (Ubuntu / Linux)
+## Быстрый старт
 
 ### Требования
 - Docker 24+
@@ -48,27 +40,36 @@
 ### Запуск
 
 ```bash
-# 1. Клонировать репозиторий
 git clone <repo-url>
 cd TenderHackMoscow
 
-# 2. Положить датасеты в ./data/
+# Положить датасеты
 mkdir -p data
 cp /path/to/ste_dataset.xlsx data/
 cp /path/to/contracts_dataset.xlsx data/
 
-# 3. Поднять все сервисы (PostgreSQL, Redis, Backend, Frontend)
+# Поднять все сервисы
 make up
 
-# 4. Запустить миграции
+# Миграции + загрузка данных
 make migrate
-
-# 5. Загрузить данные
 make load-data
 ```
 
-Приложение доступно на `http://localhost`.  
-API документация: `http://localhost:8000/docs`
+Приложение: `http://localhost`  
+API docs: `http://localhost:8000/docs`
+
+---
+
+## Основные функции
+
+- **Полнотекстовый поиск** с лемматизацией, исправлением опечаток, синонимами
+- **Семантический поиск** через rubert-tiny2 + FAISS
+- **Персонализация** на основе истории закупок и поведения в сессии
+- **Ранжирование** CatBoost LTR с объяснениями (SHAP)
+- **Коллективное обучение** -- система учитывает действия всех пользователей
+- **Интерес-трекинг** -- отслеживание и визуализация интересов покупателя
+- **Прозрачность AI** -- пользователь видит, как нейросеть приняла решение
 
 ---
 
@@ -83,44 +84,40 @@ API документация: `http://localhost:8000/docs`
   "user_inn": "7701234567",
   "session_id": "s_abc123",
   "limit": 20,
-  "offset": 0
+  "offset": 0,
+  "category": "Компьютерная техника"
 }
 ```
 
 Ответ содержит:
-- `results[]` с полем `explanations[]` — почему товар на этой позиции
-- `corrected_query` — лемматизированная форма запроса
-- `did_you_mean` — причина смены выдачи в сессии
+- `results[]` с `explanations[]` -- почему товар на этой позиции
+- `corrected_query` -- лемматизированная форма запроса
+- `collective_insights` -- данные коллективного обучения
+- `applied_rewrites` -- примененные расширения запроса
 
 ### `GET /api/v1/search/suggest?q=ноутб`
 Быстрый автокомплит (pg_trgm, <50 мс).
 
 ### `POST /api/v1/events`
-Логирование действий пользователя.
+Логирование действий пользователя (click, like, dislike, view, bounce, hide).
 
-| `event_type` | Сигнал |
-|---|---|
-| `click` | Позитивный |
-| `compare` | Позитивный |
-| `like` | Позитивный |
-| `view` | Нейтральный |
-| `bounce` | Негативный (возврат < 3 сек) |
-| `hide` | Негативный (явный отказ) |
+### `GET /api/v1/users/{inn}/categories`
+Категории пользователя с количеством товаров.
 
-### `POST /api/v1/users/onboarding`
-Создание/обновление профиля пользователя (cold start).
+### `GET /api/v1/search/facets`
+Все категории с количеством товаров.
 
 ---
 
 ## Стек технологий
 
-| Компонент | Решение | Обоснование |
-|---|---|---|
-| Backend | FastAPI + asyncpg | Async, высокая производительность |
-| База данных | PostgreSQL 16 + pgvector + pg_trgm | Один сервис: текстовый + векторный поиск |
-| Морфология | pymorphy2 | Легковесная (~5 МБ), 100% offline |
-| Персонализация | SQL rule-based + CatBoost Ranker | Нет внешних API, быстрый инференс |
-| Семантика | rubert-tiny2 (~118 МБ) + FAISS | Легковесная BERT-like модель для Russian |
-| Динамическая индексация | Redis | Sub-ms session state без перезагрузки индекса |
-| Frontend | React 19 + Vite + Tailwind | Быстрая разработка, соответствие UI-киту |
-| Контейнеризация | Docker Compose | Одна команда для деплоя |
+| Компонент | Решение |
+|---|---|
+| Backend | Python 3.11, FastAPI, SQLAlchemy 2.0 Async, asyncpg |
+| База данных | PostgreSQL 16 + pgvector + pg_trgm |
+| Кеширование | Redis 7 |
+| NLP | pymorphy2, symspellpy, NLTK |
+| Семантика | rubert-tiny2 (cointegrated), FAISS |
+| Ранжирование | CatBoost (LTR), SHAP |
+| Frontend | React 19, TypeScript, Vite 6 |
+| Инфраструктура | Docker, Docker Compose, Nginx |
