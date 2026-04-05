@@ -1,3 +1,5 @@
+import asyncio
+
 from fastapi import APIRouter, Depends
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -7,6 +9,9 @@ from app.schemas import EventCreate, EventResponse
 from app.services.session_index import record_event, record_category_click
 
 router = APIRouter(prefix="/events", tags=["events"])
+
+_event_counter = 0
+_COLLECTIVE_REFRESH_INTERVAL = 30
 
 
 @router.post("", response_model=EventResponse)
@@ -83,6 +88,16 @@ async def log_event(event: EventCreate, db: AsyncSession = Depends(get_db)):
         try:
             from app.services.session_index import flush_to_profile
             await flush_to_profile(event.user_inn, event.session_id, db)
+        except Exception:
+            pass
+
+    # Periodically refresh collective learning cache
+    global _event_counter
+    _event_counter += 1
+    if _event_counter % _COLLECTIVE_REFRESH_INTERVAL == 0:
+        try:
+            from app.services.collective_learning import rebuild_cache
+            asyncio.create_task(rebuild_cache(db))
         except Exception:
             pass
 

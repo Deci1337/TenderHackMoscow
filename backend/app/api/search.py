@@ -192,6 +192,21 @@ async def search_ste(req: SearchRequest, db: AsyncSession = Depends(get_db)):
         for sid, delta in like_boosts.items():
             session_deltas[sid] = session_deltas.get(sid, 0.0) + delta
 
+    # --- Stage 4c: Collective learning boost ---
+    try:
+        from app.services.collective_learning import get_collective_boost
+        coll_boosts = await get_collective_boost(corrected_query, candidate_ids, db)
+        for sid, cboost in coll_boosts.items():
+            session_deltas[sid] = session_deltas.get(sid, 0.0) + cboost
+            if sid in boosts:
+                boosts[sid].explanations.append({
+                    "reason": "Другие пользователи выбирали этот товар по похожему запросу",
+                    "factor": "collective",
+                    "weight": cboost,
+                })
+    except Exception:
+        pass
+
     # Apply intent-driven multipliers to base scores
     history_mult = strategy.get("history_weight_multiplier", 1.0)
     pop_mult = strategy.get("popularity_weight_multiplier", 1.0)
@@ -272,12 +287,25 @@ async def search_ste(req: SearchRequest, db: AsyncSession = Depends(get_db)):
     if req.session_id:
         ranking_change_reason = await get_session_change_reason(req.user_inn, req.session_id)
 
+    # Collective learning insights for this query
+    collective_insights = []
+    applied_rw: list[str] = []
+    try:
+        from app.services.collective_learning import get_collective_insights
+        collective_insights = await get_collective_insights(corrected_query)
+        if query_data and query_data.get("applied_synonyms"):
+            applied_rw = query_data["applied_synonyms"]
+    except Exception:
+        pass
+
     return SearchResponse(
         query=req.query,
         corrected_query=corrected_query if was_corrected else None,
         did_you_mean=ranking_change_reason,
         total=len(candidates),
         results=results,
+        collective_insights=collective_insights,
+        applied_rewrites=applied_rw,
     )
 
 

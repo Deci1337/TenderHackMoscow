@@ -327,6 +327,15 @@ async def lifespan(app: FastAPI):
 
     ml_task = asyncio.create_task(_build_ml_indexes())
 
+    # Build collective learning cache from events table
+    try:
+        from app.services.collective_learning import rebuild_cache
+        async with async_session() as db:
+            n = await rebuild_cache(db)
+            logger.info("Collective learning: %d query patterns loaded", n)
+    except Exception as e:
+        logger.warning("Collective learning init failed (non-critical): %s", e)
+
     yield
 
     ml_task.cancel()

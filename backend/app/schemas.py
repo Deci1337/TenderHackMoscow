@@ -39,12 +39,18 @@ class STEResult(BaseModel):
     creator_user_id: str | None = None
 
 
+class CollectiveInsight(BaseModel):
+    product_name: str
+    user_count: int
+
 class SearchResponse(BaseModel):
     query: str
     corrected_query: str | None = None
     did_you_mean: str | None = None
     total: int
     results: list[STEResult]
+    collective_insights: list[CollectiveInsight] = []
+    applied_rewrites: list[str] = []
 
 
 # --- Events ---

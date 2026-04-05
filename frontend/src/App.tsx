@@ -478,7 +478,7 @@ function Main({ user: initialUser, onLogout }: { user: User; onLogout: () => voi
 
           {!loading && response && response.results.length > 0 && (
             <>
-              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8 }}>
                 <p style={{ fontSize: 13, color: "#8C8C8C", margin: 0 }}>
                   {query === "*" && category
                     ? <>Товары категории «<strong style={{ color: "#1A1A1A" }}>{category}</strong>»</>
@@ -487,6 +487,26 @@ function Main({ user: initialUser, onLogout }: { user: User; onLogout: () => voi
                   }
                 </p>
               </div>
+              {/* Collective learning + rewrites insight */}
+              {(response.applied_rewrites?.length || response.collective_insights?.length) ? (
+                <div style={{ marginBottom: 12, padding: "8px 12px", background: "#F0F7FF", border: "1px solid #D4E4F7", borderRadius: 6, fontSize: 11, lineHeight: 1.7, color: "#3A5A8C" }}>
+                  {response.applied_rewrites && response.applied_rewrites.length > 0 && (
+                    <div><strong>Обработка запроса:</strong> {response.applied_rewrites.map((r, i) => (
+                      <span key={i} style={{ display: "inline-block", background: "#E0EDFF", padding: "1px 6px", borderRadius: 3, marginLeft: 4, fontSize: 10 }}>{r}</span>
+                    ))}</div>
+                  )}
+                  {response.collective_insights && response.collective_insights.length > 0 && (
+                    <div style={{ marginTop: 4 }}>
+                      <strong>Обучение на пользователях:</strong>{" "}
+                      {response.collective_insights.map((ins, i) => (
+                        <span key={i} style={{ display: "inline-block", background: "#E6F7F1", color: "#0D9B68", padding: "1px 6px", borderRadius: 3, marginLeft: 4, fontSize: 10, fontWeight: 600 }}>
+                          {ins.user_count} чел. выбрали «{ins.product_name}»
+                        </span>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              ) : null}
               <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
                 {response.results.map((item, idx) => {
                   const delta = rankDeltas[item.id];
@@ -615,6 +635,8 @@ function Main({ user: initialUser, onLogout }: { user: User; onLogout: () => voi
       {thinkingItem && (
         <ThinkingModal item={thinkingItem.item} position={thinkingItem.position}
           query={query} correctedQuery={response?.corrected_query ?? null}
+          collectiveInsights={response?.collective_insights ?? []}
+          appliedRewrites={response?.applied_rewrites ?? []}
           onClose={() => setThinkingItem(null)} />
       )}
 
@@ -789,9 +811,12 @@ const FACTOR_COLORS: Record<string, string> = {
   catboost: "#264B82", like_boost: "#0D9B68", dislike_penalty: "#DB2B21",
 };
 
-function ThinkingModal({ item, position, query, correctedQuery, onClose }: {
+function ThinkingModal({ item, position, query, correctedQuery, collectiveInsights, appliedRewrites, onClose }: {
   item: STEResult; position: number; query: string;
-  correctedQuery: string | null; onClose: () => void;
+  correctedQuery: string | null;
+  collectiveInsights: Array<{ product_name: string; user_count: number }>;
+  appliedRewrites: string[];
+  onClose: () => void;
 }) {
   useEffect(() => {
     const h = (e: KeyboardEvent) => e.key === "Escape" && onClose();
@@ -919,6 +944,39 @@ function ThinkingModal({ item, position, query, correctedQuery, onClose }: {
               <p style={{ fontSize: 13, color: "#7F8792", margin: 0 }}>
                 Ранжирование только по текстовому совпадению (BM25 + семантика). Персональных сигналов пока нет — начните взаимодействовать с товарами, чтобы система начала подстраиваться.
               </p>
+            </div>
+          )}
+
+          {/* Applied rewrites */}
+          {appliedRewrites.length > 0 && (
+            <div style={{ background: "#F0F7FF", borderRadius: 6, padding: "10px 14px", border: "1px solid #D4E4F7" }}>
+              <div style={{ fontSize: 11, fontWeight: 700, color: "#3A5A8C", textTransform: "uppercase", marginBottom: 6 }}>Как система переработала запрос</div>
+              {appliedRewrites.map((r, i) => (
+                <div key={i} style={{ fontSize: 11, color: "#3A5A8C", padding: "2px 0", display: "flex", alignItems: "center", gap: 6 }}>
+                  <span style={{ background: "#E0EDFF", padding: "1px 6px", borderRadius: 3, fontWeight: 600 }}>{r}</span>
+                </div>
+              ))}
+            </div>
+          )}
+
+          {/* Collective learning */}
+          {collectiveInsights.length > 0 && (
+            <div style={{ background: "#F0FFF7", borderRadius: 6, padding: "10px 14px", border: "1px solid #B2DFD0" }}>
+              <div style={{ fontSize: 11, fontWeight: 700, color: "#0D9B68", textTransform: "uppercase", marginBottom: 6 }}>Обучение на пользователях</div>
+              <div style={{ fontSize: 11, color: "#1A1A1A", lineHeight: 1.7, marginBottom: 6 }}>
+                Система анализирует, какие товары выбирают другие пользователи по аналогичным запросам, и дообучается:
+              </div>
+              {collectiveInsights.map((ins, i) => (
+                <div key={i} style={{ fontSize: 12, padding: "4px 0", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                  <span style={{ fontWeight: 600 }}>«{ins.product_name}»</span>
+                  <span style={{ fontSize: 10, background: "#E6F7F1", color: "#0D9B68", padding: "2px 8px", borderRadius: 10, fontWeight: 700 }}>
+                    {ins.user_count} пользователей
+                  </span>
+                </div>
+              ))}
+              <div style={{ fontSize: 10, color: "#8C8C8C", marginTop: 6 }}>
+                Чем больше пользователей выбирают товар по запросу, тем выше он будет в выдаче для всех.
+              </div>
             </div>
           )}
 

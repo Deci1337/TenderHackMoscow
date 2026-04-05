@@ -29,6 +29,36 @@ _STOPWORDS_RU = frozenset({
     "без", "будто", "чего", "раз", "тоже", "себе", "под", "при",
 })
 
+PHRASE_REWRITES: dict[str, list[str]] = {
+    "бумага для подарков": ["бумага упаковочная", "бумага оберточная", "упаковка подарочная"],
+    "бумага подарочная": ["бумага упаковочная", "бумага оберточная"],
+    "бумага для упаковки": ["бумага упаковочная", "бумага оберточная", "пленка упаковочная"],
+    "бумага для выпечки": ["бумага пищевая кухонная", "пергамент для выпечки"],
+    "бумага для черчения": ["бумага для черчения", "ватман"],
+    "бумага для рисования": ["бумага для рисования", "альбом для рисования"],
+    "бумага для печати": ["бумага офисная", "бумага для принтера", "бумага а4"],
+    "бумага для принтера": ["бумага офисная", "бумага а4"],
+    "бумага туалетная": ["бумага туалетная", "средство гигиены"],
+    "масло моторное": ["масло моторное", "масло трансмиссионное", "смазочный материал"],
+    "масло подсолнечное": ["масло подсолнечное", "масло растительное", "жиры растительные"],
+    "масло сливочное": ["масло сливочное", "масложировая продукция"],
+    "ручка дверная": ["ручка дверная", "фурнитура для дверей", "ручка оконная"],
+    "ручка шариковая": ["ручка шариковая", "ручка гелевая", "ручка канцелярская"],
+    "стул офисный": ["кресло офисное", "стул офисный", "стул рабочий"],
+    "стул школьный": ["стул ученический", "парта", "стул школьный"],
+    "канат спортивный": ["канат спортивный", "инвентарь спортивный", "снаряд гимнастический"],
+    "канат строительный": ["канат стальной", "канат пеньковый", "трос"],
+    "перчатки медицинские": ["перчатки нитриловые", "перчатки латексные", "перчатки смотровые"],
+    "перчатки рабочие": ["перчатки защитные", "рукавицы", "средства защиты рук"],
+    "лампа настольная": ["лампа настольная", "светильник настольный"],
+    "лампа уличная": ["светильник уличный", "фонарь", "прожектор"],
+    "замок дверной": ["замок врезной", "замок навесной", "запорное устройство"],
+    "ключ гаечный": ["ключ разводной", "ключ торцевой", "инструмент слесарный"],
+    "ключ лицензионный": ["ключ активации", "программное обеспечение", "лицензия"],
+    "доска школьная": ["доска интерактивная", "доска маркерная", "доска меловая"],
+    "доска строительная": ["доска обрезная", "пиломатериал", "брус"],
+}
+
 PROCUREMENT_SYNONYMS: dict[str, list[str]] = {
     # --- Канцелярия ---
     "бумага": ["бумага офисная", "бумага для принтера", "бумага а4"],
@@ -251,21 +281,38 @@ class NLPService:
         applied = []
         expanded = list(lemmas)
 
-        for lemma in lemmas:
-            homograph_expansions = resolve_homograph(lemma, user_industry)
-            if homograph_expansions:
-                for he in homograph_expansions:
-                    expanded.extend(self.lemmatize(he))
-                applied.append(f"{lemma} ~> {', '.join(homograph_expansions[:3])} (context)")
-                # When a context-specific homograph resolution exists, skip the generic
-                # synonym expansion for this lemma to avoid polluting results with the
-                # wrong interpretation (e.g. don't add pen synonyms for a builder).
-                continue
+        # Phase 0: phrase-level rewrites (checked before single-word synonyms)
+        norm_lower = normalized.lower()
+        phrase_matched = False
+        for phrase, rewrites in PHRASE_REWRITES.items():
+            if phrase in norm_lower:
+                for rw in rewrites:
+                    expanded.extend(self.lemmatize(rw))
+                applied.append(f"[фраза] «{phrase}» -> {', '.join(rewrites[:3])}")
+                phrase_matched = True
+                break
 
-            if lemma in PROCUREMENT_SYNONYMS:
-                for syn in PROCUREMENT_SYNONYMS[lemma]:
-                    expanded.extend(self.lemmatize(syn))
-                applied.append(f"{lemma} -> {', '.join(PROCUREMENT_SYNONYMS[lemma][:3])}")
+        # Also check collective learning rewrites
+        from app.services.collective_learning import get_learned_rewrites
+        learned = get_learned_rewrites(norm_lower)
+        if learned:
+            for rw in learned:
+                expanded.extend(self.lemmatize(rw))
+            applied.append(f"[обучение] пользователи выбирают: {', '.join(learned[:3])}")
+
+        if not phrase_matched:
+            for lemma in lemmas:
+                homograph_expansions = resolve_homograph(lemma, user_industry)
+                if homograph_expansions:
+                    for he in homograph_expansions:
+                        expanded.extend(self.lemmatize(he))
+                    applied.append(f"{lemma} ~> {', '.join(homograph_expansions[:3])} (context)")
+                    continue
+
+                if lemma in PROCUREMENT_SYNONYMS:
+                    for syn in PROCUREMENT_SYNONYMS[lemma]:
+                        expanded.extend(self.lemmatize(syn))
+                    applied.append(f"{lemma} -> {', '.join(PROCUREMENT_SYNONYMS[lemma][:3])}")
 
         if normalized in _REVERSE_SYNONYMS:
             main = _REVERSE_SYNONYMS[normalized]

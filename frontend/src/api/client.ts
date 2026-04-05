@@ -36,12 +36,19 @@ export interface STEResult {
   tags?: string[];
 }
 
+export interface CollectiveInsight {
+  product_name: string;
+  user_count: number;
+}
+
 export interface SearchResponse {
   query: string;
   corrected_query: string | null;
   did_you_mean: string | null;
   total: number;
   results: STEResult[];
+  collective_insights?: CollectiveInsight[];
+  applied_rewrites?: string[];
 }
 
 export interface UserProfile {
