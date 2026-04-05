@@ -88,8 +88,7 @@ function DemoSelector({ onDone }: { onDone: (u: User) => void }) {
       <div style={{ background: "#fff", borderRadius: 8, boxShadow: "0 4px 24px rgba(0,0,0,.12)", width: "100%", maxWidth: 460, overflow: "hidden" }}>
         <div style={{ background: "#264B82", padding: "20px 24px", color: "#fff" }}>
           <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 12 }}>
-            <div style={{ width: 28, height: 28, background: "#fff", borderRadius: 4, display: "flex", alignItems: "center", justifyContent: "center", color: "#264B82", fontWeight: 900, fontSize: 12 }}>П</div>
-            <span style={{ fontWeight: 600, fontSize: 14 }}>Портал поставщиков</span>
+            <img src="https://zakupki.mos.ru/cms/Media/holidaysthemes/pplogo/pp_logo_government_customer_day.svg" alt="Портал поставщиков" style={{ height: 28 }} />
           </div>
           <div style={{ fontWeight: 700, fontSize: 18 }}>Умный поиск СТЕ</div>
           <div style={{ fontSize: 13, color: "#a3bfe0", marginTop: 4 }}>
@@ -395,8 +394,7 @@ function Main({ user: initialUser, onLogout }: { user: User; onLogout: () => voi
       <header style={{ background: "#264B82", color: "#fff" }}>
         <div style={{ maxWidth: 1100, margin: "0 auto", padding: "0 16px", height: 48, display: "flex", alignItems: "center", justifyContent: "space-between" }}>
           <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-            <div style={{ width: 24, height: 24, background: "#fff", borderRadius: 4, display: "flex", alignItems: "center", justifyContent: "center", color: "#264B82", fontWeight: 900, fontSize: 10 }}>П</div>
-            <span style={{ fontWeight: 600, fontSize: 14 }}>Портал поставщиков</span>
+            <img src="https://zakupki.mos.ru/cms/Media/holidaysthemes/pplogo/pp_logo_government_customer_day.svg" alt="Портал поставщиков" style={{ height: 24 }} />
             <span style={{ color: "#a3bfe0", fontSize: 12, marginLeft: 4 }}>/ Умный поиск</span>
           </div>
           <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
