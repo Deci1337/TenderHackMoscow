@@ -34,9 +34,6 @@ export interface STEResult {
   avg_price?: number | null;
   price_trend?: "up" | "down" | "stable" | null;
   tags?: string[];
-  is_promoted?: boolean;
-  promotion_boost?: number;
-  creator_user_id?: string | null;
 }
 
 export interface SearchResponse {
@@ -78,29 +75,24 @@ export interface PopularQueriesResponse {
   queries: PopularQuery[];
 }
 
-export interface CreateProductRequest {
-  name: string;
+export interface CategoryInterest {
   category: string;
-  tags: string[];
-  description: string;
-  creator_user_id: string;
-  order_count?: number;
+  click_count: number;
+  contract_count: number;
+  weight: number;
+  trend: "rising" | "stable" | "fading";
+  last_interaction_days: number;
 }
 
-export interface MyProduct {
-  id: number;
-  name: string;
-  category: string | null;
-  tags: string[];
-  order_count: number;
-  is_promoted: boolean;
-  promoted_until: string | null;
-  promotion_boost: number;
-}
-
-export interface PromoteRequest {
-  days: number;
-  creator_user_id: string;
+export interface UserInterestSummary {
+  inn: string;
+  label: string | null;
+  top_categories: CategoryInterest[];
+  session_clicks_total: number;
+  recent_query: string | null;
+  active_interests: string[];
+  fading_interests: string[];
+  last_updated: string;
 }
 
 export const api = {
@@ -149,11 +141,7 @@ export const api = {
   onboard(userId: string, interests: string[]) {
     return request<UserProfile>("/users/onboarding", {
       method: "POST",
-      body: JSON.stringify({
-        inn: userId,
-        industry: interests[0] ?? null,
-        interests,
-      }),
+      body: JSON.stringify({ inn: userId, industry: interests[0] ?? null, interests }),
     });
   },
 
@@ -161,21 +149,11 @@ export const api = {
     return request<UserProfile>(`/users/${inn}`);
   },
 
-  createProduct(data: CreateProductRequest) {
-    return request<MyProduct>("/products", {
-      method: "POST",
-      body: JSON.stringify(data),
-    });
+  getUserInterests(inn: string) {
+    return request<UserInterestSummary>(`/users/${inn}/interests`);
   },
 
-  getMyProducts(userId: string) {
-    return request<MyProduct[]>(`/products?creator_user_id=${encodeURIComponent(userId)}`);
-  },
-
-  activatePromotion(productId: number, data: PromoteRequest) {
-    return request<MyProduct>(`/products/${productId}/promote`, {
-      method: "POST",
-      body: JSON.stringify(data),
-    });
+  getUserCategories(inn: string) {
+    return request<string[]>(`/users/${inn}/categories`);
   },
 };
