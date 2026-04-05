@@ -317,6 +317,13 @@ function Main({ user: initialUser, onLogout }: { user: User; onLogout: () => voi
     setLikedIds(prev => { const s = new Set(prev); s.add(steId); return s; });
     setDislikedIds(prev => { const s = new Set(prev); s.delete(steId); return s; });
     trackAction(steId, "like", cat);
+    
+    if (query === "*") {
+      showToast("Оценено — ваши интересы обновлены");
+      setTimeout(() => doSearch(query, offset), 1500);
+      return;
+    }
+
     const item = response?.results.find(r => r.id === steId);
     const posBefore = (response?.results.findIndex(r => r.id === steId) ?? -1) + 1;
     const itemName = item?.name ?? "товар";
@@ -331,6 +338,13 @@ function Main({ user: initialUser, onLogout }: { user: User; onLogout: () => voi
     setDislikedIds(prev => { const s = new Set(prev); s.add(steId); return s; });
     setLikedIds(prev => { const s = new Set(prev); s.delete(steId); return s; });
     trackAction(steId, "dislike", cat);
+
+    if (query === "*") {
+      showToast("Отмечено — ваши интересы обновлены");
+      setTimeout(() => doSearch(query, offset), 1500);
+      return;
+    }
+
     const item = response?.results.find(r => r.id === steId);
     const posBefore = (response?.results.findIndex(r => r.id === steId) ?? -1) + 1;
     const itemName = item?.name ?? "товар";
