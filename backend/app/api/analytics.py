@@ -34,6 +34,7 @@ from app.schemas import (
     ProductAnalyticsResponse,
 )
 
+
 log = logging.getLogger(__name__)
 router = APIRouter(prefix="/analytics", tags=["analytics"])
 
@@ -47,8 +48,7 @@ async def get_product_analytics(product_id: int, db: AsyncSession = Depends(get_
     product_row = (
         await db.execute(
             text("""
-                SELECT s.id, s.name, s.tags, s.promoted_until,
-                       s.promotion_boost, s.order_count,
+                SELECT s.id, s.name, s.tags, s.order_count,
                        COALESCE(sp.contract_cnt, s.order_count, 0) AS total_orders
                 FROM ste s
                 LEFT JOIN ste_popularity sp ON sp.ste_id = s.id
@@ -96,11 +96,6 @@ async def get_product_analytics(product_id: int, db: AsyncSession = Depends(get_
     price_data = await get_price_info(db, [product_id])
     pi = price_data.get(product_id, {})
 
-    now = datetime.now(timezone.utc)
-    is_promoted = (
-        product_row.promoted_until is not None and product_row.promoted_until > now
-    )
-
     return ProductAnalyticsResponse(
         product_id=product_id,
         name=product_row.name,
@@ -112,8 +107,6 @@ async def get_product_analytics(product_id: int, db: AsyncSession = Depends(get_
         top_search_queries=top_queries,
         avg_price=pi.get("avg_price"),
         price_trend=pi.get("price_trend"),
-        is_promoted=is_promoted,
-        promotion_boost=float(product_row.promotion_boost or 0),
         order_count=int(product_row.total_orders),
     )
 

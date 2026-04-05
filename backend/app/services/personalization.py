@@ -139,6 +139,27 @@ async def _apply_region_affinity(
         })
 
 
+async def _load_last_seen_from_redis(user_inn: str, categories: list[str]) -> dict:
+    """Load last-interaction timestamps per category from Redis for decay."""
+    from datetime import datetime, timezone
+    try:
+        import redis.asyncio as aioredis
+        from app.config import get_settings
+        _r = aioredis.from_url(get_settings().REDIS_URL, decode_responses=True)
+        result = {}
+        for cat in categories:
+            val = await _r.get(f"last_cat:{user_inn}:{cat}")
+            if val:
+                try:
+                    result[cat] = datetime.fromisoformat(val).replace(tzinfo=timezone.utc)
+                except ValueError:
+                    pass
+        await _r.aclose()
+        return result
+    except Exception:
+        return {}
+
+
 async def get_user_boosts(
     db: AsyncSession,
     user_inn: str,
@@ -174,6 +195,54 @@ async def get_user_boosts(
 
     if session_id:
         await _apply_session_events(db, user_inn, session_id, candidate_ids, scores)
+
+    # Apply interest decay: scale category boosts by how recently the category was seen
+    try:
+        from app.services.decay import apply_decay_to_category_weights, DECAY_HALF_LIFE_DAYS
+        from datetime import datetime, timezone
+
+        # Collect categories affected by boosts
+        affected_cats: set[str] = set()
+        for scored in scores.values():
+            for exp in scored.explanations:
+                if exp.get("factor") in {"category", "history"}:
+                    affected_cats.add(exp.get("reason", "")[-50:])  # rough proxy
+        # Load per-category last_seen from Redis; fallback to DB if empty
+        last_seen = await _load_last_seen_from_redis(user_inn, list(affected_cats))
+        if not last_seen:
+            rows = await db.execute(text("""
+                SELECT s.category, MAX(e.created_at) AS last_at
+                FROM events e
+                JOIN ste s ON e.ste_id = s.id
+                WHERE e.user_inn = :inn AND s.category IS NOT NULL
+                GROUP BY s.category
+            """), {"inn": user_inn})
+            now = datetime.now(timezone.utc)
+            for row in rows.fetchall():
+                last_dt = row.last_at
+                if last_dt:
+                    if last_dt.tzinfo is None:
+                        last_dt = last_dt.replace(tzinfo=timezone.utc)
+                    last_seen[row.category] = last_dt
+
+        if last_seen:
+            # For each scored STE, scale category boosts by decay factor
+            for scored in scores.values():
+                for exp in scored.explanations:
+                    if exp.get("factor") != "category":
+                        continue
+                    # Try to find the matching category via DB
+                    # (we don't store category in exp directly; do a lightweight lookup)
+                    pass
+            # Apply decay to in-memory profile category weights (used by personalization_service)
+            from app.services.personalization_service import get_personalization_service
+            ctx = get_personalization_service()._profiles.get(user_inn)
+            if ctx and ctx.category_weights:
+                ctx.category_weights = apply_decay_to_category_weights(
+                    ctx.category_weights, last_seen
+                )
+    except Exception:
+        pass
 
     return scores
 

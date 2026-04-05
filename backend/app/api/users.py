@@ -1,10 +1,10 @@
 from fastapi import APIRouter, Depends, HTTPException
-from sqlalchemy import func, select
+from sqlalchemy import func, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database import get_db
 from app.models import Contract, UserProfile
-from app.schemas import OnboardingRequest, UserProfileResponse
+from app.schemas import OnboardingRequest, UserInterestSummary, UserProfileResponse
 
 router = APIRouter(prefix="/users", tags=["users"])
 
@@ -50,6 +50,37 @@ async def get_user(inn: str, db: AsyncSession = Depends(get_db)):
         inn=profile.inn, name=profile.name, region=profile.region,
         industry=profile.industry, **stats,
     )
+
+
+@router.get("/{inn}/interests", response_model=UserInterestSummary)
+async def get_user_interests(inn: str, db: AsyncSession = Depends(get_db)):
+    """Return interest summary for a user: categories, weights, trends, and session activity."""
+    from app.services.personalization_service import get_personalization_service
+    svc = get_personalization_service()
+    data = await svc.get_interest_summary(inn, db)
+    return data
+
+
+@router.get("/{inn}/categories", response_model=list[str])
+async def get_user_categories(inn: str, db: AsyncSession = Depends(get_db)):
+    """
+    Return categories relevant to this user (from contract history + industry mapping).
+    Used by the frontend filter 'Show only relevant categories'.
+    """
+    result = await db.execute(text("""
+        SELECT DISTINCT s.category
+        FROM contracts c
+        JOIN ste s ON c.ste_id = s.id
+        WHERE c.customer_inn = :inn AND s.category IS NOT NULL
+    """), {"inn": inn})
+    contract_cats = [row.category for row in result.fetchall()]
+
+    profile = await db.get(UserProfile, inn)
+    industry = profile.industry if profile else None
+
+    from app.services.personalization_service import get_allowed_categories_for_user
+    categories = get_allowed_categories_for_user(industry, contract_cats)
+    return categories if categories else contract_cats
 
 
 async def _get_user_stats(db: AsyncSession, inn: str) -> dict:

@@ -10,6 +10,7 @@ from app.schemas import (
     RankCheckResponse, RankingExplanation, SearchRequest, SearchResponse,
     STEResult, SuggestResponse, ThinkingFactor, ThinkingResponse,
 )
+from app.services.explainability_service import humanize_factor
 from app.services.personalization import get_user_boosts
 from app.services.query_intent import INTENT_STRATEGY, QueryIntent, detect_intent
 from app.services.query_processor import process_query
@@ -38,7 +39,13 @@ async def search_ste(req: SearchRequest, db: AsyncSession = Depends(get_db)):
         import redis.asyncio as aioredis
         from app.config import get_settings
         _r = aioredis.from_url(get_settings().REDIS_URL, decode_responses=True)
-        await _r.zincrby("popular_queries", 1, req.query.strip().lower())
+        query_norm = req.query.strip().lower()
+        await _r.zincrby("popular_queries", 1, query_norm)
+        if req.user_inn:
+            key = f"user_queries:{req.user_inn}"
+            await _r.lpush(key, query_norm)
+            await _r.ltrim(key, 0, 49)
+            await _r.expire(key, 60 * 60 * 24 * 30)
         await _r.aclose()
     except Exception:
         pass
@@ -202,16 +209,28 @@ async def search_ste(req: SearchRequest, db: AsyncSession = Depends(get_db)):
             category=row["category"],
             attributes=row["attributes"] if isinstance(row["attributes"], dict) else None,
             score=round(score, 4),
-            explanations=[RankingExplanation(**e) for e in explanations],
+            explanations=[
+                RankingExplanation(
+                    reason=(
+                        e["reason"]
+                        if isinstance(e, dict) and e.get("reason")
+                        else humanize_factor(
+                            e.get("factor", "") if isinstance(e, dict) else str(e),
+                            e.get("weight", 0.0) if isinstance(e, dict) else 0.0,
+                            {"category": row.get("category", "")},
+                        )
+                    ),
+                    factor=e.get("factor", "") if isinstance(e, dict) else "",
+                    weight=e.get("weight", 0.0) if isinstance(e, dict) else 0.0,
+                )
+                for e in explanations
+            ],
             snippet=row.get("snippet") or None,
             avg_price=price_data.get(sid, {}).get("avg_price"),
             price_trend=price_data.get(sid, {}).get("price_trend"),
             tags=row.get("tags") or [],
-            is_promoted=(
-                row.get("promoted_until") is not None
-                and row["promoted_until"] > _now_resp
-            ),
-            promotion_boost=float(row.get("promotion_boost") or 0),
+            is_promoted=False,
+            promotion_boost=0.0,
             creator_user_id=row.get("creator_user_id") or None,
         )
         for sid, score, row, explanations in page
@@ -353,18 +372,6 @@ def _apply_catboost_rerank(
             explanations = list(boost_obj.explanations)
             has_mismatch = any(e.get("factor") == "profile_mismatch" for e in explanations)
 
-            # Promotion boost only for profile-matching items.
-            # A promoted pen should not jump to #1 for a builder.
-            promoted_until = c.get("promoted_until")
-            if promoted_until and promoted_until > _now_cb and not has_mismatch:
-                promotion_signal = float(c.get("promotion_boost") or 0)
-                combined += promotion_signal
-                explanations.append({
-                    "reason": "Продвигается",
-                    "factor": "promotion",
-                    "weight": promotion_signal,
-                })
-
             combined += min(c.get("order_count") or 0, 10000) / 10000 * 0.1
 
             scored.append((sid, combined, c, explanations))
@@ -387,16 +394,6 @@ def _apply_catboost_rerank(
 
         explanations = list(boost_obj.explanations)
         has_mismatch = any(e.get("factor") == "profile_mismatch" for e in explanations)
-
-        promoted_until = c.get("promoted_until")
-        if promoted_until and promoted_until > _now and not has_mismatch:
-            promotion_signal = float(c.get("promotion_boost") or 0)
-            total += promotion_signal
-            explanations.append({
-                "reason": "Продвигается",
-                "factor": "promotion",
-                "weight": promotion_signal,
-            })
 
         total += min(c.get("order_count") or 0, 10000) / 10000 * 0.1
 
@@ -560,8 +557,6 @@ async def get_thinking(
     db: AsyncSession = Depends(get_db),
 ):
     """Explain ranking decision for a specific STE item and query."""
-    from datetime import datetime, timezone
-
     from fastapi import HTTPException
 
     from app.services.nlp_service import get_nlp_service
@@ -573,8 +568,7 @@ async def get_thinking(
     row = (
         await db.execute(
             text("""
-                SELECT s.id, s.name, s.category, s.tags, s.promoted_until,
-                       s.promotion_boost, s.order_count,
+                SELECT s.id, s.name, s.category, s.tags, s.order_count,
                        COALESCE(sp.contract_cnt, 0) AS contract_cnt,
                        ts_rank(s.name_tsv, plainto_tsquery('russian', :lemma)) AS ts_score,
                        similarity(s.name, :orig) AS trgm_score
@@ -589,22 +583,11 @@ async def get_thinking(
     if not row:
         raise HTTPException(status_code=404, detail="STE not found")
 
-    now = datetime.now(timezone.utc)
-    is_promoted = row.promoted_until is not None and row.promoted_until > now
-
     factors = [
         ThinkingFactor(name="Совпадение по tsvector", score=round(float(row.ts_score), 4), type="text"),
         ThinkingFactor(name="Триграмное сходство", score=round(float(row.trgm_score), 4), type="text"),
         ThinkingFactor(name="Популярность (кол-во контрактов)", score=int(row.contract_cnt), type="popularity"),
     ]
-    if is_promoted:
-        factors.append(
-            ThinkingFactor(
-                name="Активное продвижение",
-                score=float(row.promotion_boost or 2.0),
-                type="promotion",
-            )
-        )
 
     return ThinkingResponse(
         ste_id=ste_id,
@@ -614,8 +597,8 @@ async def get_thinking(
         applied_synonyms=query_data.get("applied_synonyms", []),
         was_corrected=query_data.get("was_corrected", False),
         factors=factors,
-        is_promoted=is_promoted,
-        promotion_boost=float(row.promotion_boost or 0),
+        is_promoted=False,
+        promotion_boost=0.0,
         tags=row.tags or [],
     )
 
@@ -661,11 +644,6 @@ async def rank_check(
 
     for pos, (sid, score, row, _) in enumerate(scored, start=1):
         if sid == product_id:
-            from datetime import datetime, timezone
-            is_promo = (
-                row.get("promoted_until") is not None
-                and row["promoted_until"] > datetime.now(timezone.utc)
-            )
             return RankCheckResponse(
                 product_id=product_id,
                 query=query,
@@ -673,7 +651,7 @@ async def rank_check(
                 score=round(score, 4),
                 intent=intent.value,
                 intent_description=strategy.get("description", ""),
-                is_promoted=is_promo,
+                is_promoted=False,
             )
 
     return RankCheckResponse(

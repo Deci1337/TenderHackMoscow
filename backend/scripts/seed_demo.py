@@ -1,92 +1,120 @@
-"""Seed demo data: 50 realistic STE items + contracts for 3 demo users.
-Run: python -m scripts.seed_demo
+"""
+Seed demo data: 3 realistic user profiles with contracts generated from real STE rows.
+
+Run:
+    python -m scripts.seed_demo
 """
 import asyncio
+import random
 import sys
-from datetime import date
+from datetime import date, timedelta
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
+
 from app.config import settings
 
-DEMO_STE = [
-    (1, "Бумага офисная A4 белая 80 г/м2 500 листов", "Канцелярские товары", '{"Формат":"A4","Плотность":"80 г/м2","Белизна":"146%"}'),
-    (2, "Бумага офисная A3 белая 80 г/м2 500 листов", "Канцелярские товары", '{"Формат":"A3","Плотность":"80 г/м2"}'),
-    (3, "Ручка шариковая синяя", "Канцелярские товары", '{"Цвет":"синий","Тип":"шариковая"}'),
-    (4, "Ручка гелевая черная", "Канцелярские товары", '{"Цвет":"черный","Тип":"гелевая"}'),
-    (5, "Картридж для принтера HP LaserJet", "IT-оборудование", '{"Бренд":"HP","Тип":"лазерный","Ресурс":"2000 стр"}'),
-    (6, "Картридж для принтера Canon", "IT-оборудование", '{"Бренд":"Canon","Тип":"лазерный"}'),
-    (7, "Тонер-картридж Xerox B210", "IT-оборудование", '{"Бренд":"Xerox","Модель":"B210"}'),
-    (8, "Компьютер персональный i5 16GB RAM", "IT-оборудование", '{"Процессор":"Intel i5","ОЗУ":"16 ГБ","SSD":"512 ГБ"}'),
-    (9, "Ноутбук Lenovo ThinkPad 14 дюймов", "IT-оборудование", '{"Бренд":"Lenovo","Диагональ":"14 дюймов","ОЗУ":"8 ГБ"}'),
-    (10, "Монитор 24 дюйма IPS Full HD", "IT-оборудование", '{"Диагональ":"24 дюйма","Разрешение":"1920x1080","Тип матрицы":"IPS"}'),
-    (11, "Принтер лазерный HP LaserJet Pro", "IT-оборудование", '{"Бренд":"HP","Тип":"лазерный","Скорость":"30 стр/мин"}'),
-    (12, "МФУ Canon imageRUNNER", "IT-оборудование", '{"Бренд":"Canon","Функции":"печать, сканер, копир"}'),
-    (13, "Стол офисный письменный 120x60", "Мебель", '{"Размер":"120x60 см","Материал":"ЛДСП"}'),
-    (14, "Стол компьютерный угловой", "Мебель", '{"Тип":"угловой","Материал":"ЛДСП"}'),
-    (15, "Стул офисный с подлокотниками", "Мебель", '{"Тип":"офисный","Подлокотники":"да","Обивка":"ткань"}'),
-    (16, "Кресло руководителя кожаное", "Мебель", '{"Тип":"руководитель","Материал":"экокожа"}'),
-    (17, "Шкаф для документов металлический", "Мебель", '{"Материал":"металл","Замок":"да","Полки":"4"}'),
-    (18, "Маска медицинская трехслойная 50 шт", "Медицинские товары", '{"Количество":"50 шт","Тип":"трехслойная"}'),
-    (19, "Перчатки нитриловые медицинские размер M", "Медицинские товары", '{"Размер":"M","Материал":"нитрил","Количество":"100 шт"}'),
-    (20, "Антисептик для рук 500 мл", "Медицинские товары", '{"Объем":"500 мл","Тип":"спиртовой"}'),
-    (21, "Салфетки бумажные двухслойные 200 шт", "Хозяйственные товары", '{"Количество":"200 шт","Слои":"2"}'),
-    (22, "Мыло жидкое антибактериальное 1 л", "Хозяйственные товары", '{"Объем":"1 л","Тип":"антибактериальное"}'),
-    (23, "Средство моющее для полов 5 л", "Хозяйственные товары", '{"Объем":"5 л"}'),
-    (24, "Лампа светодиодная E27 12W", "Электротехника", '{"Цоколь":"E27","Мощность":"12W","Тип":"LED"}'),
-    (25, "Светильник офисный потолочный LED", "Электротехника", '{"Тип":"потолочный","Мощность":"36W"}'),
-    (26, "Кабель сетевой UTP Cat5e 305м", "IT-оборудование", '{"Тип":"UTP","Категория":"Cat5e","Длина":"305 м"}'),
-    (27, "Флеш-накопитель USB 3.0 64 ГБ", "IT-оборудование", '{"Объем":"64 ГБ","Интерфейс":"USB 3.0"}'),
-    (28, "Краска водоэмульсионная белая 10 л", "Стройматериалы", '{"Объем":"10 л","Цвет":"белый"}'),
-    (29, "Труба ПВХ канализационная 110 мм", "Стройматериалы", '{"Диаметр":"110 мм","Материал":"ПВХ"}'),
-    (30, "Цемент М500 50 кг", "Стройматериалы", '{"Марка":"М500","Вес":"50 кг"}'),
-    (31, "Дверь межкомнатная 800x2000", "Стройматериалы", '{"Размер":"800x2000 мм","Материал":"МДФ"}'),
-    (32, "Окно ПВХ двухстворчатое 1200x1200", "Стройматериалы", '{"Размер":"1200x1200 мм","Стеклопакет":"двойной"}'),
-    (33, "Учебник математика 5 класс", "Образование", '{"Предмет":"математика","Класс":"5"}'),
-    (34, "Учебник русский язык 7 класс", "Образование", '{"Предмет":"русский язык","Класс":"7"}'),
-    (35, "Парта школьная двухместная", "Образование", '{"Тип":"двухместная","Регулировка высоты":"да"}'),
-    (36, "Доска маркерная магнитная 120x90", "Образование", '{"Размер":"120x90 см","Тип":"магнитно-маркерная"}'),
-    (37, "Проектор мультимедийный 3500 люмен", "IT-оборудование", '{"Яркость":"3500 люмен","Разрешение":"1080p"}'),
-    (38, "Насос циркуляционный для отопления", "ЖКХ", '{"Тип":"циркуляционный","Мощность":"100W"}'),
-    (39, "Счетчик воды бытовой 15 мм", "ЖКХ", '{"Диаметр":"15 мм","Тип":"крыльчатый"}'),
-    (40, "Огнетушитель порошковый ОП-4", "Безопасность", '{"Тип":"порошковый","Масса заряда":"4 кг"}'),
-    (41, "Аптечка первой помощи офисная", "Медицинские товары", '{"Тип":"офисная","Комплектация":"стандартная"}'),
-    (42, "Халат медицинский белый размер 50", "Медицинские товары", '{"Размер":"50","Цвет":"белый"}'),
-    (43, "Бахилы полиэтиленовые 100 пар", "Медицинские товары", '{"Количество":"100 пар","Материал":"полиэтилен"}'),
-    (44, "Степлер офисный на 20 листов", "Канцелярские товары", '{"Вместимость":"20 листов"}'),
-    (45, "Скрепки канцелярские 28 мм 100 шт", "Канцелярские товары", '{"Размер":"28 мм","Количество":"100 шт"}'),
-    (46, "Папка-регистратор А4 75 мм", "Канцелярские товары", '{"Формат":"А4","Ширина корешка":"75 мм"}'),
-    (47, "Клей-карандаш 36 г", "Канцелярские товары", '{"Масса":"36 г"}'),
-    (48, "Ножницы офисные 210 мм", "Канцелярские товары", '{"Длина":"210 мм"}'),
-    (49, "Калькулятор настольный 12 разрядов", "Канцелярские товары", '{"Разрядность":"12","Тип":"настольный"}'),
-    (50, "Скотч упаковочный прозрачный 48 мм", "Канцелярские товары", '{"Ширина":"48 мм","Длина":"66 м"}'),
+DEMO_PROFILES = [
+    {
+        "inn": "7701234567",
+        "name": "Школа №1234",
+        "industry": "Образование",
+        "region": "Москва",
+        "purchase_pattern": {
+            "Канцелярские товары": 45,
+            "Мебель офисная": 20,
+            "IT-оборудование": 12,
+            "Спортивный инвентарь": 8,
+        },
+    },
+    {
+        "inn": "7709876543",
+        "name": "Городская больница №5",
+        "industry": "Медицина",
+        "region": "Москва",
+        "purchase_pattern": {
+            "Медицинские товары": 80,
+            "Расходные материалы": 60,
+            "Хозяйственные товары": 25,
+            "IT-оборудование": 15,
+        },
+    },
+    {
+        "inn": "7705551234",
+        "name": "СтройМонтаж ООО",
+        "industry": "Стройматериалы",
+        "region": "Московская область",
+        "purchase_pattern": {
+            "Стройматериалы": 120,
+            "Электротехника": 55,
+            "Инструменты": 30,
+            "Хозяйственные товары": 18,
+        },
+    },
 ]
 
-DEMO_CONTRACTS = [
-    ("Закупка канцелярских товаров", "C001", 1, "2025-03-15", 15000, "7701234567", "Школа №1234", "Москва"),
-    ("Закупка канцелярских товаров", "C002", 3, "2025-04-10", 5000, "7701234567", "Школа №1234", "Москва"),
-    ("Закупка канцелярских товаров", "C003", 44, "2025-05-20", 3000, "7701234567", "Школа №1234", "Москва"),
-    ("Закупка учебников", "C004", 33, "2025-06-01", 50000, "7701234567", "Школа №1234", "Москва"),
-    ("Закупка учебников", "C005", 34, "2025-06-01", 45000, "7701234567", "Школа №1234", "Москва"),
-    ("Закупка школьной мебели", "C006", 35, "2025-07-10", 120000, "7701234567", "Школа №1234", "Москва"),
-    ("Закупка доски", "C007", 36, "2025-08-15", 25000, "7701234567", "Школа №1234", "Москва"),
-    ("Закупка медицинских товаров", "C010", 18, "2025-03-01", 8000, "7709876543", "Городская больница №5", "Москва"),
-    ("Закупка перчаток", "C011", 19, "2025-03-15", 12000, "7709876543", "Городская больница №5", "Москва"),
-    ("Закупка антисептиков", "C012", 20, "2025-04-01", 9000, "7709876543", "Городская больница №5", "Москва"),
-    ("Закупка халатов", "C013", 42, "2025-05-10", 35000, "7709876543", "Городская больница №5", "Москва"),
-    ("Закупка аптечек", "C014", 41, "2025-06-20", 15000, "7709876543", "Городская больница №5", "Москва"),
-    ("Закупка бахил", "C015", 43, "2025-07-01", 6000, "7709876543", "Городская больница №5", "Москва"),
-    ("Закупка стройматериалов", "C020", 28, "2025-03-10", 25000, "7705551234", "СтройМонтаж", "Москва"),
-    ("Закупка труб", "C021", 29, "2025-04-15", 80000, "7705551234", "СтройМонтаж", "Москва"),
-    ("Закупка цемента", "C022", 30, "2025-05-01", 45000, "7705551234", "СтройМонтаж", "Москва"),
-    ("Закупка дверей", "C023", 31, "2025-06-10", 150000, "7705551234", "СтройМонтаж", "Москва"),
-    ("Закупка окон", "C024", 32, "2025-07-20", 200000, "7705551234", "СтройМонтаж", "Москва"),
-]
 
-async def main():
+async def seed_demo_contracts(db: AsyncSession) -> None:
+    for profile in DEMO_PROFILES:
+        await db.execute(text("""
+            INSERT INTO user_profiles (inn, name, region, industry, profile_data, created_at)
+            VALUES (:inn, :name, :region, :industry, CAST(:pd AS jsonb), now())
+            ON CONFLICT (inn) DO UPDATE
+              SET name = EXCLUDED.name,
+                  region = EXCLUDED.region,
+                  industry = EXCLUDED.industry,
+                  profile_data = EXCLUDED.profile_data
+        """), {
+            "inn": profile["inn"],
+            "name": profile["name"],
+            "region": profile["region"],
+            "industry": profile["industry"],
+            "pd": f'{{"industry":"{profile["industry"]}","region":"{profile["region"]}"}}'
+        })
+
+        for category, count in profile["purchase_pattern"].items():
+            result = await db.execute(text("""
+                SELECT id FROM ste
+                WHERE category ILIKE :cat
+                LIMIT :lim
+            """), {"cat": f"%{category}%", "lim": count})
+            ste_ids = [row.id for row in result.fetchall()]
+
+            for ste_id in ste_ids:
+                contract_date = date.today() - timedelta(days=random.randint(1, 365))
+                await db.execute(text("""
+                    INSERT INTO contracts
+                        (purchase_name, contract_id, ste_id, contract_date, cost,
+                         customer_inn, customer_name, customer_region)
+                    VALUES
+                        (:pn, :cid, :sid, :dt, :cost, :inn, :cname, :reg)
+                    ON CONFLICT (contract_id) DO NOTHING
+                """), {
+                    "pn": f"Закупка: {category}",
+                    "cid": f"DEMO-{profile['inn']}-{ste_id}",
+                    "sid": ste_id,
+                    "dt": contract_date,
+                    "cost": round(random.uniform(1000, 500000), 2),
+                    "inn": profile["inn"],
+                    "cname": profile["name"],
+                    "reg": profile["region"],
+                })
+
+        await db.commit()
+
+        try:
+            from app.services.personalization_service import get_personalization_service
+            svc = get_personalization_service()
+            await svc.rebuild_from_db(profile["inn"], db)
+            print(f"  Profile rebuilt in memory for {profile['inn']}")
+        except Exception as e:
+            print(f"  Warning: could not rebuild in-memory profile for {profile['inn']}: {e}")
+
+
+async def main() -> None:
     engine = create_async_engine(settings.DATABASE_URL, echo=False)
     Session = async_sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
 
@@ -94,40 +122,24 @@ async def main():
         from app.database import Base
         await conn.run_sync(Base.metadata.create_all)
 
-    async with Session() as s:
-        await s.execute(text("DELETE FROM contracts"))
-        await s.execute(text("DELETE FROM user_profiles"))
-        await s.execute(text("DELETE FROM ste"))
-        await s.commit()
+    async with Session() as db:
+        # Remove only demo contracts to avoid wiping production data
+        for p in DEMO_PROFILES:
+            await db.execute(text("""
+                DELETE FROM contracts
+                WHERE customer_inn = :inn AND contract_id LIKE 'DEMO-%'
+            """), {"inn": p["inn"]})
+        await db.commit()
 
-        for sid, name, cat, attrs in DEMO_STE:
-            await s.execute(text(
-                "INSERT INTO ste (id, name, category, attributes) VALUES (:id, :name, :cat, CAST(:attrs AS jsonb))"
-            ), {"id": sid, "name": name, "cat": cat, "attrs": attrs})
-        await s.commit()
-
-        await s.execute(text("UPDATE ste SET name_tsv = to_tsvector('russian', name) WHERE name_tsv IS NULL"))
-        await s.commit()
-
-        for pn, cid, sid, dt, cost, inn, cname, region in DEMO_CONTRACTS:
-            await s.execute(text(
-                "INSERT INTO contracts (purchase_name, contract_id, ste_id, contract_date, cost, customer_inn, customer_name, customer_region) "
-                "VALUES (:pn, :cid, :sid, :dt, :cost, :inn, :cname, :reg)"
-            ), {"pn": pn, "cid": cid, "sid": sid, "dt": date.fromisoformat(dt), "cost": cost, "inn": inn, "cname": cname, "reg": region})
-        await s.commit()
-
-        for inn, name, region, industry in [
-            ("7701234567", "Школа №1234", "Москва", "Образование"),
-            ("7709876543", "Городская больница №5", "Москва", "Здравоохранение"),
-            ("7705551234", "СтройМонтаж", "Москва", "Строительство"),
-        ]:
-            await s.execute(text(
-                "INSERT INTO user_profiles (inn, name, region, industry, profile_data, created_at) VALUES (:inn, :name, :reg, :ind, CAST(:pd AS jsonb), now()) ON CONFLICT (inn) DO NOTHING"
-            ), {"inn": inn, "name": name, "reg": region, "ind": industry, "pd": f'{{"industry":"{industry}"}}'})
-        await s.commit()
+        await seed_demo_contracts(db)
 
     await engine.dispose()
-    print(f"Seeded: {len(DEMO_STE)} STE, {len(DEMO_CONTRACTS)} contracts, 3 user profiles")
+
+    total_contracts = sum(
+        sum(v for v in p["purchase_pattern"].values()) for p in DEMO_PROFILES
+    )
+    print(f"Seeded: {len(DEMO_PROFILES)} demo users, up to {total_contracts} contracts from real STE data")
+
 
 if __name__ == "__main__":
     asyncio.run(main())

@@ -14,6 +14,62 @@ from app.services.search_service import SearchResult
 from app.services.ranking_service import RankingService, FEATURE_NAMES
 
 
+def humanize_factor(factor: str, weight: float, meta: dict | None = None) -> str:
+    """
+    Convert a technical ranking factor identifier into a business-friendly Russian explanation.
+
+    Parameters
+    ----------
+    factor  : factor key (e.g. "bm25", "history", "decay")
+    weight  : numeric weight from the scoring pipeline
+    meta    : optional context dict — may contain category, contract_count, session_count
+    """
+    meta = meta or {}
+    category = meta.get("category", "")
+    contract_count = int(meta.get("contract_count", 0))
+    session_count = int(meta.get("session_count", 0))
+
+    templates: dict[str, object] = {
+        "bm25": lambda: "Точное совпадение слов в названии товара",
+        "semantic": lambda: "Семантически похож на запрос пользователя",
+        "history": lambda: (
+            f"Пользователь закупал товары категории «{category}» — {contract_count} контрактов в истории"
+            if contract_count > 0 else
+            "Совпадает с историей закупок пользователя"
+        ),
+        "category": lambda: (
+            f"Входит в предпочтительную категорию «{category}»"
+            if category else
+            "Входит в предпочтительную категорию"
+        ),
+        "session": lambda: (
+            f"Пользователь просматривал похожие товары {session_count} раз в этой сессии"
+            if session_count > 0 else
+            "Интерес проявлен в текущей сессии"
+        ),
+        "negative": lambda: "Снижен в позиции — пользователь ранее отклонил похожие товары",
+        "profile_mismatch": lambda: (
+            f"Вероятно не соответствует профилю пользователя (категория: {category})"
+            if category else
+            "Вероятно не соответствует профилю пользователя"
+        ),
+        "popularity": lambda: "Часто заказывается другими покупателями",
+        "region": lambda: "Популярно в вашем регионе",
+        "like_boost": lambda: "Поднят — пользователь оценил этот товар положительно",
+        "dislike_penalty": lambda: "Опущен — пользователь отметил как нерелевантный",
+        "catboost": lambda: "ML-модель оценила как подходящий для данного пользователя",
+        "decay": lambda: (
+            f"Категория «{category}» давно не просматривалась — приоритет снижен"
+            if category else
+            "Категория давно не просматривалась — приоритет снижен"
+        ),
+        "freshness": lambda: "Товар имеет высокую активность в последнее время",
+    }
+
+    fn = templates.get(factor)
+    return fn() if callable(fn) else (str(fn) if fn else factor)
+
+
 FEATURE_EXPLANATIONS = {
     "bm25_score": "Exact keyword match in product name",
     "semantic_score": "Semantic meaning similarity to your query",

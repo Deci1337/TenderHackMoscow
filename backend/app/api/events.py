@@ -53,6 +53,23 @@ async def log_event(event: EventCreate, db: AsyncSession = Depends(get_db)):
         if category and event.event_type in {"click", "view", "like"}:
             await record_category_click(event.user_inn, event.session_id, category)
 
+    # Persist last interaction timestamp per category for interest decay
+    category = (event.meta or {}).get("category")
+    if category and event.event_type in {"click", "view", "like", "compare"}:
+        try:
+            import redis.asyncio as aioredis
+            from app.config import get_settings
+            from datetime import datetime
+            _r = aioredis.from_url(get_settings().REDIS_URL, decode_responses=True)
+            await _r.set(
+                f"last_cat:{event.user_inn}:{category}",
+                datetime.utcnow().isoformat(),
+                ex=86400 * 60,
+            )
+            await _r.aclose()
+        except Exception:
+            pass
+
     # Persist like/dislike as long-lived Redis signals for ranking (TTL 7 days)
     if event.event_type in {"like", "dislike"}:
         try:

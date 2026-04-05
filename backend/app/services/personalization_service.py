@@ -222,6 +222,172 @@ class PersonalizationService:
         return {"customer_inn": customer_inn, "status": "no_profile"}
 
 
+    async def get_interest_summary(self, inn: str, db) -> dict:
+        """
+        Build user interest summary from contract history + live session + decay.
+        Used by GET /users/{inn}/interests.
+        """
+        from sqlalchemy import text
+        from datetime import datetime, timezone
+
+        ctx = self._profiles.get(inn)
+        now = datetime.now(timezone.utc)
+
+        result = await db.execute(text("""
+            SELECT s.category, COUNT(*) AS cnt
+            FROM contracts c
+            JOIN ste s ON c.ste_id = s.id
+            WHERE c.customer_inn = :inn AND s.category IS NOT NULL
+            GROUP BY s.category
+            ORDER BY cnt DESC
+            LIMIT 10
+        """), {"inn": inn})
+        contract_counts = {row.category: int(row.cnt) for row in result.fetchall()}
+
+        result2 = await db.execute(text("""
+            SELECT s.category, MAX(e.created_at) AS last_at
+            FROM events e
+            JOIN ste s ON e.ste_id = s.id
+            WHERE e.user_inn = :inn AND s.category IS NOT NULL
+            GROUP BY s.category
+        """), {"inn": inn})
+        last_interactions = {row.category: row.last_at for row in result2.fetchall()}
+
+        all_cats = set(contract_counts.keys())
+        if ctx:
+            all_cats |= set(ctx.category_weights.keys())
+
+        categories = []
+        for cat in all_cats:
+            contract_cnt = contract_counts.get(cat, 0)
+            session_weight = ctx.category_weights.get(cat, 0.0) if ctx else 0.0
+
+            last_dt = last_interactions.get(cat)
+            if last_dt:
+                if last_dt.tzinfo is None:
+                    last_dt = last_dt.replace(tzinfo=timezone.utc)
+                days_ago = (now - last_dt).days
+            else:
+                days_ago = 999
+
+            base = min(contract_cnt / 50.0, 1.0)
+            decay = max(0.0, 1.0 - days_ago / 30.0)
+            weight = min(1.0, base * 0.6 + session_weight * 0.4) * (0.3 + 0.7 * decay)
+
+            if session_weight > 0.3 and days_ago < 1:
+                trend = "rising"
+            elif days_ago > 14:
+                trend = "fading"
+            else:
+                trend = "stable"
+
+            categories.append({
+                "category": cat,
+                "click_count": 0,
+                "contract_count": contract_cnt,
+                "weight": round(weight, 3),
+                "trend": trend,
+                "last_interaction_days": days_ago if days_ago < 999 else -1,
+            })
+
+        categories.sort(key=lambda x: x["weight"], reverse=True)
+
+        active = [c["category"] for c in categories if c["weight"] > 0.3]
+        fading = [c["category"] for c in categories if c["trend"] == "fading"]
+
+        recent_query = None
+        try:
+            import redis.asyncio as aioredis
+            from app.config import get_settings
+            _r = aioredis.from_url(get_settings().REDIS_URL, decode_responses=True)
+            recent_query = await _r.lindex(f"user_queries:{inn}", 0)
+            await _r.aclose()
+        except Exception:
+            pass
+
+        from app.models import UserProfile
+        profile = await db.get(UserProfile, inn)
+
+        return {
+            "inn": inn,
+            "label": profile.name if profile else None,
+            "top_categories": categories[:8],
+            "session_clicks_total": ctx.interaction_count if ctx else 0,
+            "recent_query": recent_query,
+            "active_interests": active[:3],
+            "fading_interests": fading[:2],
+            "last_updated": now.isoformat(),
+        }
+
+    async def rebuild_from_db(self, inn: str, db) -> None:
+        """Rebuild in-memory profile for a user from their DB contracts."""
+        from sqlalchemy import text
+        result = await db.execute(text("""
+            SELECT s.category, s.id AS ste_id
+            FROM contracts c
+            JOIN ste s ON c.ste_id = s.id
+            WHERE c.customer_inn = :inn AND s.category IS NOT NULL
+        """), {"inn": inn})
+        rows = result.fetchall()
+        categories = [r.category for r in rows]
+        ste_ids = [r.ste_id for r in rows]
+        try:
+            from app.services.search_service import get_search_service
+            ss = get_search_service()
+            emb_map = {sid: ss._documents[sid].embedding for sid in ste_ids if sid in ss._documents} if ss._initialized else {}
+        except Exception:
+            emb_map = {}
+        self.build_profile_from_contracts(inn, categories, emb_map, ste_ids)
+
+
+# --- Industry → category mapping for GET /users/{inn}/categories ---
+
+INDUSTRY_ALLOWED_CATEGORIES: dict[str, list[str]] = {
+    "Образование": [
+        "Канцелярские товары", "Мебель", "Мебель офисная", "IT-оборудование",
+        "Компьютеры", "Спортивный инвентарь", "Хозяйственные товары", "Книги",
+    ],
+    "Медицина": [
+        "Медицинские товары", "Расходные материалы", "Мебель медицинская",
+        "Хозяйственные товары", "IT-оборудование", "Спецодежда",
+    ],
+    "Стройматериалы": [
+        "Стройматериалы", "Электротехника", "Инструменты", "Крепёж",
+        "Хозяйственные товары", "Мебель", "Спецодежда",
+    ],
+    "Электротехника": [
+        "Электротехника", "IT-оборудование", "Инструменты", "Кабели",
+    ],
+    "IT-оборудование": [
+        "IT-оборудование", "Компьютеры", "Сетевое оборудование",
+        "Канцелярские товары", "Мебель офисная",
+    ],
+    "ЖКХ": [
+        "ЖКХ", "Стройматериалы", "Электротехника", "Хозяйственные товары", "Инструменты",
+    ],
+    "Транспорт": [
+        "Транспортные средства", "Запчасти", "Электротехника", "ЖКХ",
+    ],
+    "Хозяйственные товары": [
+        "Хозяйственные товары", "Стройматериалы", "ЖКХ",
+    ],
+    "Канцелярские товары": [
+        "Канцелярские товары", "Мебель офисная", "IT-оборудование",
+    ],
+}
+
+
+def get_allowed_categories_for_user(
+    industry: str | None,
+    contract_categories: list[str],
+) -> list[str]:
+    """Merge industry-allowed categories with user's own contract categories."""
+    allowed = set(contract_categories)
+    if industry and industry in INDUSTRY_ALLOWED_CATEGORIES:
+        allowed |= set(INDUSTRY_ALLOWED_CATEGORIES[industry])
+    return sorted(allowed) if allowed else []
+
+
 _personalization_service: PersonalizationService | None = None
 
 

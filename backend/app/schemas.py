@@ -106,44 +106,6 @@ class PopularQueriesResponse(BaseModel):
     queries: list[PopularQuery]
 
 
-# --- Products (Sprint 2) ---
-
-class CreateProductRequest(BaseModel):
-    name: str = Field(..., min_length=2, max_length=500)
-    category: str | None = None
-    tags: list[str] = []
-    description: str | None = None
-    user_id: str
-
-
-class CreateProductResponse(BaseModel):
-    id: int
-    name: str
-    tags: list[str]
-    message: str
-
-
-class PromoteRequest(BaseModel):
-    days: int = Field(..., ge=1, le=30)
-
-
-class PromoteResponse(BaseModel):
-    product_id: int
-    promoted_until: str
-    boost: float
-    price: int
-
-
-class MyProductResponse(BaseModel):
-    id: int
-    name: str
-    category: str | None
-    tags: list[str]
-    order_count: int
-    is_promoted: bool
-    promoted_until: str | None
-    promotion_boost: float
-
 
 # --- Thinking / Ranking explanation (Sprint 2) ---
 
@@ -179,8 +141,6 @@ class ProductAnalyticsResponse(BaseModel):
     top_search_queries: list[str]
     avg_price: float | None
     price_trend: str | None
-    is_promoted: bool
-    promotion_boost: float
     order_count: int
 
 
@@ -214,3 +174,25 @@ class HotItemResponse(BaseModel):
     recent_views: int
     recent_contracts: int
     price_drop: bool
+
+
+# --- User Interest Summary (Sprint 3) ---
+
+class CategoryInterest(BaseModel):
+    category: str
+    click_count: int
+    contract_count: int
+    weight: float
+    trend: str                  # "rising" | "stable" | "fading"
+    last_interaction_days: int  # 0 = today, -1 = never
+
+
+class UserInterestSummary(BaseModel):
+    inn: str
+    label: str | None = None
+    top_categories: list[CategoryInterest]
+    session_clicks_total: int
+    recent_query: str | None = None
+    active_interests: list[str]
+    fading_interests: list[str]
+    last_updated: str
