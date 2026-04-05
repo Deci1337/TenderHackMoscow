@@ -325,7 +325,6 @@ function Main({ user: initialUser, onLogout }: { user: User; onLogout: () => voi
     setLearningFeedback({ action: "like", itemName, itemId: steId, query, category: cat, positionBefore: posBefore, lessons });
     setLearningLog(prev => [...prev, { action: "like", itemName, query, lesson: lessons[0], timestamp: Date.now() }]);
     setTimeout(() => doSearch(query, offset), 1500);
-    setTimeout(() => setLearningFeedback(null), 8000);
   }
 
   function handleDislike(steId: number, cat?: string) {
@@ -340,7 +339,6 @@ function Main({ user: initialUser, onLogout }: { user: User; onLogout: () => voi
     setLearningFeedback({ action: "dislike", itemName, itemId: steId, query, category: cat, positionBefore: posBefore, lessons });
     setLearningLog(prev => [...prev, { action: "dislike", itemName, query, lesson: lessons[0], timestamp: Date.now() }]);
     setTimeout(() => doSearch(query, offset), 1500);
-    setTimeout(() => setLearningFeedback(null), 8000);
   }
 
   // Update learning feedback with new position after re-search
