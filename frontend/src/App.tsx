@@ -247,7 +247,7 @@ function Main({ user, onLogout }: { user: User; onLogout: () => void }) {
 
   useEffect(() => {
     api.getUserCategories(user.id)
-      .then(setUserCategories)
+      .then(cats => setUserCategories(cats.length > 0 ? cats : user.interests))
       .catch(() => setUserCategories(user.interests));
   }, [user.id]);
 
@@ -281,8 +281,12 @@ function Main({ user, onLogout }: { user: User; onLogout: () => void }) {
     }
   }, [response]);
 
+  // Partial match: "Канцелярские товары" matches "Канцелярские товары и принадлежности"
   const visibleFacets = onlyInteresting && userCategories.length > 0
-    ? facets.filter(f => userCategories.includes(f.name))
+    ? facets.filter(f => userCategories.some(uc =>
+        f.name.toLowerCase().includes(uc.toLowerCase()) ||
+        uc.toLowerCase().includes(f.name.toLowerCase())
+      ))
     : facets;
 
   const doSearch = useCallback(async (q: string, off = 0, sort = sortBy, cat = category) => {
