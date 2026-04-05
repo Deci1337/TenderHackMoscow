@@ -90,13 +90,16 @@ async def _get_user_stats(db: AsyncSession, inn: str) -> dict:
     )
     total = result.scalar() or 0
 
-    cat_result = await db.execute(
-        select(Contract.purchase_name, func.count().label("cnt"))
-        .where(Contract.customer_inn == inn)
-        .group_by(Contract.purchase_name)
-        .order_by(func.count().desc())
-        .limit(5)
-    )
+    # Join with STE to get clean category names from the actual catalog
+    cat_result = await db.execute(text("""
+        SELECT s.category, COUNT(*) as cnt
+        FROM contracts c
+        JOIN ste s ON c.ste_id = s.id
+        WHERE c.customer_inn = :inn AND s.category IS NOT NULL
+        GROUP BY s.category
+        ORDER BY cnt DESC
+        LIMIT 6
+    """), {"inn": inn})
     top_cats = [r[0] for r in cat_result.all() if r[0]]
 
     return {"total_contracts": total, "top_categories": top_cats}
