@@ -316,9 +316,13 @@ function Main({ user: initialUser, onLogout }: { user: User; onLogout: () => voi
     if (cat) {
       boostCategory(cat, 1);
       setSessionClicks(prev => [...prev, { steId: 0, category: cat, name: `Категория: ${cat}` }]);
+      setInputVal("");
+      setQuery("*");
+      doSearch("*", 0, sortBy, cat);
+    } else {
+      const q = inputVal.trim() || query || "";
+      if (q) doSearch(q, 0, sortBy, null);
     }
-    const q = inputVal.trim() || query || (cat ? "*" : "");
-    if (q) doSearch(q, 0, sortBy, cat);
   }
 
   function selectSort(s: string) {
@@ -408,14 +412,14 @@ function Main({ user: initialUser, onLogout }: { user: User; onLogout: () => voi
       {/* BODY: sidebar + results */}
       <div style={{ maxWidth: 1100, margin: "0 auto", padding: "16px 16px", display: "flex", gap: 16, alignItems: "flex-start" }}>
         {/* SIDEBAR */}
-        <aside style={{ width: 220, flexShrink: 0, background: "#fff", border: "1px solid #D4DBE6", borderRadius: 6, overflow: "hidden", position: "sticky", top: 16 }}>
+        <aside style={{ width: 220, flexShrink: 0, background: "#fff", border: "1px solid #D4DBE6", borderRadius: 6, overflow: "hidden", position: "sticky", top: 16, maxHeight: "calc(100vh - 32px)", display: "flex", flexDirection: "column" }}>
           <button onClick={() => setShowFilters(!showFilters)}
             style={{ display: "flex", alignItems: "center", justifyContent: "space-between", width: "100%", padding: "12px 14px", border: "none", background: "transparent", cursor: "pointer", fontSize: 13, fontWeight: 700, color: "#1A1A1A" }}>
             <span style={{ display: "flex", alignItems: "center", gap: 6 }}><SlidersHorizontal size={14} /> Фильтры</span>
             <ChevronDown size={14} style={{ transform: showFilters ? "rotate(180deg)" : "none", transition: "transform .2s" }} />
           </button>
           {showFilters && (
-            <div style={{ padding: "0 14px 14px" }}>
+            <div style={{ padding: "0 14px 14px", overflowY: "auto", flex: 1 }}>
               {/* Sort */}
               <div style={{ marginBottom: 14 }}>
                 <div style={{ fontSize: 11, fontWeight: 600, color: "#8C8C8C", textTransform: "uppercase", marginBottom: 6, display: "flex", alignItems: "center", gap: 4 }}><ArrowUpDown size={11} /> Сортировка</div>
@@ -832,7 +836,7 @@ function ThinkingModal({ item, position, query, correctedQuery, collectiveInsigh
 
   const PIPELINE_STEPS = [
     { label: "1. Ввод запроса", detail: `Пользователь ввёл «${query}»`, color: "#264B82" },
-    { label: "2. Лемматизация", detail: "pymorphy2 приводит слова к начальной форме: масло → масло, ручка → ручка", color: "#264B82" },
+    { label: "2. Лемматизация", detail: "pymorphy2 приводит слова к начальной форме: ручке → ручка, масла → масло, карандашей → карандаш", color: "#264B82" },
     { label: "3. Проверка опечаток", detail: wasCorrected ? `SymSpell нашёл ошибку: «${query}» → «${correctedQuery}»` : "SymSpell не нашёл ошибок в запросе", color: wasCorrected ? "#F67319" : "#0D9B68" },
     { label: "4. Синонимы и контекст", detail: "NLP-модель определяет отрасль пользователя и подбирает контекстные синонимы", color: "#264B82" },
     { label: "5. Поиск кандидатов", detail: "BM25 (точное текстовое совпадение) + BERT-эмбеддинги (семантическая близость) ищут топ-100 товаров", color: "#264B82" },
