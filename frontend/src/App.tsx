@@ -162,8 +162,8 @@ function Main({ user: initialUser, onLogout }: { user: User; onLogout: () => voi
   const [showInterestPanel, setShowInterestPanel] = useState(false);
   const [sessionClicks, setSessionClicks] = useState<Array<{ steId: number; category: string; name: string }>>([]);
 
-  // Sprint 3: category interest filter
-  const [onlyInteresting, setOnlyInteresting] = useState(true);
+  // Sprint 3: category interest filter (starts false until user data arrives)
+  const [onlyInteresting, setOnlyInteresting] = useState(false);
   const [userCategoryFacets, setUserCategoryFacets] = useState<CategoryFacet[]>([]);
 
   // Sprint 3: rank delta arrows (use ref to avoid infinite effect loop)
@@ -182,6 +182,7 @@ function Main({ user: initialUser, onLogout }: { user: User; onLogout: () => voi
       setFacets(facetsResp.categories);
       if (userCats.length > 0) {
         setUserCategoryFacets(userCats);
+        setOnlyInteresting(true);
         setUser(prev => ({ ...prev, interests: userCats.map(c => c.name) }));
       }
     });
@@ -232,6 +233,11 @@ function Main({ user: initialUser, onLogout }: { user: User; onLogout: () => voi
     try {
       const data = await api.search(searchQuery, user.id, sessionId, PAGE_SIZE, off, sort, cat || undefined, user.interests);
       setResponse(data);
+      // Boost categories found in search results (lightweight interest signal)
+      if (data.results.length > 0 && searchQuery !== "*") {
+        const cats = new Set(data.results.map(r => r.category).filter(Boolean) as string[]);
+        cats.forEach(c => boostCategory(c, 0.5));
+      }
     } catch (err: unknown) {
       const isTimeout = err instanceof DOMException && err.name === "AbortError";
       if (isTimeout) {
@@ -247,10 +253,23 @@ function Main({ user: initialUser, onLogout }: { user: User; onLogout: () => voi
     setTimeout(() => setToast(null), 3000);
   }
 
+  function boostCategory(cat: string, amount: number) {
+    setUserCategoryFacets(prev => {
+      const existing = prev.find(f => f.name === cat);
+      if (existing) return prev;
+      return [...prev, { name: cat, count: 1 }];
+    });
+    api.logEvent(user.id, 0, "category_interest", sessionId, query, { category: cat, boost: amount }).catch(() => {});
+  }
+
   function trackAction(steId: number, action: string, cat?: string) {
     const meta: Record<string, unknown> = {};
     if (cat) meta.category = cat;
     api.logEvent(user.id, steId, action, sessionId, query, meta).catch(() => {});
+    if (cat) {
+      const boost = action === "click" ? 3 : action === "like" ? 2 : 1;
+      boostCategory(cat, boost);
+    }
     if (action === "click" && cat) {
       const item = response?.results.find(r => r.id === steId);
       if (item) setSessionClicks(prev => [...prev, { steId, category: cat, name: item.name }]);
@@ -282,11 +301,11 @@ function Main({ user: initialUser, onLogout }: { user: User; onLogout: () => voi
     }, 200);
   }
 
-  // Bug fix: use inputVal (current input) not stale query state
   function selectCategory(cat: string | null) {
     setCategory(cat);
     setOffset(0);
     setResponse(null);
+    if (cat) boostCategory(cat, 1);
     const q = inputVal.trim() || query || (cat ? "*" : "");
     if (q) doSearch(q, 0, sortBy, cat);
   }
