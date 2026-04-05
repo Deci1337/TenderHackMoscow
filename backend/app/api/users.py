@@ -4,7 +4,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database import get_db
 from app.models import Contract, UserProfile
-from app.schemas import OnboardingRequest, UserInterestSummary, UserProfileResponse
+from app.schemas import CategoryFacet, OnboardingRequest, UserInterestSummary, UserProfileResponse
 
 router = APIRouter(prefix="/users", tags=["users"])
 
@@ -61,12 +61,14 @@ async def get_user_interests(inn: str, db: AsyncSession = Depends(get_db)):
     return data
 
 
-@router.get("/{inn}/categories", response_model=list[str])
+@router.get("/{inn}/categories", response_model=list[CategoryFacet])
 async def get_user_categories(inn: str, db: AsyncSession = Depends(get_db)):
     """
-    Return categories relevant to this user (from contract history + industry mapping).
-    Used by the frontend filter 'Show only relevant categories'.
+    Return categories relevant to this user with real STE item counts.
+    Combines contract history categories + industry-mapped categories.
+    Each category has its actual count of items in the STE catalog.
     """
+    # Get categories from contract history
     result = await db.execute(text("""
         SELECT DISTINCT s.category
         FROM contracts c
@@ -79,8 +81,37 @@ async def get_user_categories(inn: str, db: AsyncSession = Depends(get_db)):
     industry = profile.industry if profile else None
 
     from app.services.personalization_service import get_allowed_categories_for_user
-    categories = get_allowed_categories_for_user(industry, contract_cats)
-    return categories if categories else contract_cats
+    allowed = get_allowed_categories_for_user(industry, contract_cats)
+    if not allowed:
+        allowed = contract_cats
+
+    # Get all STE categories with counts
+    all_cats = await db.execute(text("""
+        SELECT category, COUNT(*) AS cnt
+        FROM ste WHERE category IS NOT NULL
+        GROUP BY category
+    """))
+    cat_counts: dict[str, int] = {r.category: int(r.cnt) for r in all_cats.fetchall()}
+
+    # Match allowed categories to real STE categories (partial match both ways)
+    matched: list[CategoryFacet] = []
+    used_real: set[str] = set()
+    for allowed_name in allowed:
+        al = allowed_name.lower()
+        best_name: str | None = None
+        best_count = 0
+        for real_name, cnt in cat_counts.items():
+            rl = real_name.lower()
+            if rl == al or rl.startswith(al) or al.startswith(rl) or al in rl or rl in al:
+                if real_name not in used_real and cnt > best_count:
+                    best_name = real_name
+                    best_count = cnt
+        if best_name:
+            matched.append(CategoryFacet(name=best_name, count=best_count))
+            used_real.add(best_name)
+
+    matched.sort(key=lambda f: f.count, reverse=True)
+    return matched
 
 
 async def _get_user_stats(db: AsyncSession, inn: str) -> dict:

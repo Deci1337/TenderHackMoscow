@@ -154,6 +154,6 @@ export const api = {
   },
 
   getUserCategories(inn: string) {
-    return request<string[]>(`/users/${inn}/categories`);
+    return request<CategoryFacet[]>(`/users/${inn}/categories`);
   },
 };

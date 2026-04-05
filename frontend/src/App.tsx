@@ -56,57 +56,31 @@ interface DemoProfile {
   isNew?: boolean;
 }
 
-const DEMO_PROFILES_UI: DemoProfile[] = [
-  {
-    id: "7701234567",
-    label: "Школа №1234",
-    industry: "Образование",
-    description: "Категории определены по истории закупок",
-    categories: ["Канцелярские товары", "Мебель офисная", "IT-оборудование", "Спортивный инвентарь"],
-    contracts: 0,
-  },
-  {
-    id: "7709876543",
-    label: "Городская больница №5",
-    industry: "Медицина",
-    description: "Категории определены по истории закупок",
-    categories: ["Медицинские товары", "Расходные материалы", "Хозяйственные товары", "IT-оборудование"],
-    contracts: 0,
-  },
-  {
-    id: "7705551234",
-    label: "СтройМонтаж ООО",
-    industry: "Строительство",
-    description: "Категории определены по истории закупок",
-    categories: ["Стройматериалы", "Электротехника", "Инструменты", "Хозяйственные товары"],
-    contracts: 0,
-  },
-  {
-    id: `new_${Date.now()}`,
-    label: "Новый пользователь",
-    industry: "Не определена",
-    description: "Чистый профиль — наблюдайте как система учится предпочтениям",
-    categories: [],
-    contracts: 0,
-    isNew: true,
-  },
+const DEMO_PROFILES_BASE: Omit<DemoProfile, "categories" | "contracts">[] = [
+  { id: "7701234567", label: "Школа №1234",           industry: "Образование",   description: "Категории определены по истории закупок и отрасли" },
+  { id: "7709876543", label: "Городская больница №5", industry: "Медицина",      description: "Категории определены по истории закупок и отрасли" },
+  { id: "7705551234", label: "СтройМонтаж ООО",       industry: "Строительство", description: "Категории определены по истории закупок и отрасли" },
 ];
 
 /* ===================  DEMO SELECTOR  =================== */
 function DemoSelector({ onDone }: { onDone: (u: User) => void }) {
   const [loadingId, setLoadingId] = useState<string | null>(null);
-  const [profiles, setProfiles] = useState<DemoProfile[]>(DEMO_PROFILES_UI);
+  const [profiles, setProfiles] = useState<DemoProfile[]>([
+    ...DEMO_PROFILES_BASE.map(p => ({ ...p, categories: [], contracts: 0 })),
+    { id: `new_${Date.now()}`, label: "Новый пользователь", industry: "Не определена",
+      description: "Чистый профиль — наблюдайте как система учится предпочтениям",
+      categories: [], contracts: 0, isNew: true },
+  ]);
 
-  // Pre-fetch real top_categories from backend to show in cards
   useEffect(() => {
-    DEMO_PROFILES_UI.filter(p => !p.isNew).forEach(async p => {
-      const profile = await api.getUser(p.id).catch(() => null);
-      if (profile?.top_categories?.length) {
-        setProfiles(prev => prev.map(x => x.id === p.id
-          ? { ...x, categories: profile.top_categories, contracts: profile.total_contracts }
-          : x
-        ));
-      }
+    DEMO_PROFILES_BASE.forEach(async base => {
+      const cats = await api.getUserCategories(base.id).catch(() => []);
+      const catNames = cats.map(c => c.name);
+      const profile = await api.getUser(base.id).catch(() => null);
+      setProfiles(prev => prev.map(x => x.id === base.id
+        ? { ...x, categories: catNames, contracts: profile?.total_contracts ?? 0 }
+        : x
+      ));
     });
   }, []);
 
@@ -117,11 +91,12 @@ function DemoSelector({ onDone }: { onDone: (u: User) => void }) {
       onDone({ id: newId, label: "Новый пользователь", interests: [] });
       return;
     }
-    const profile = await api.getUser(demo.id).catch(() => null);
+    const cats = await api.getUserCategories(demo.id).catch(() => []);
+    const catNames = cats.map(c => c.name);
     onDone({
       id: demo.id,
       label: demo.label,
-      interests: profile?.top_categories ?? demo.categories,
+      interests: catNames.length > 0 ? catNames : demo.categories,
     });
   }
 
@@ -233,7 +208,7 @@ function Main({ user, onLogout }: { user: User; onLogout: () => void }) {
 
   // Sprint 3: category interest filter
   const [onlyInteresting, setOnlyInteresting] = useState(true);
-  const [userCategories, setUserCategories] = useState<string[]>([]);
+  const [userCategoryFacets, setUserCategoryFacets] = useState<CategoryFacet[]>([]);
 
   // Sprint 3: rank delta arrows (use ref to avoid infinite effect loop)
   const prevPositionsRef = useRef<Record<number, number>>({});
@@ -247,8 +222,14 @@ function Main({ user, onLogout }: { user: User; onLogout: () => void }) {
 
   useEffect(() => {
     api.getUserCategories(user.id)
-      .then(cats => setUserCategories(cats.length > 0 ? cats : user.interests))
-      .catch(() => setUserCategories(user.interests));
+      .then(cats => {
+        if (cats.length > 0) {
+          setUserCategoryFacets(cats);
+        } else {
+          setUserCategoryFacets(user.interests.map(n => ({ name: n, count: 0 })));
+        }
+      })
+      .catch(() => setUserCategoryFacets(user.interests.map(n => ({ name: n, count: 0 }))));
   }, [user.id]);
 
   useEffect(() => {
@@ -281,15 +262,8 @@ function Main({ user, onLogout }: { user: User; onLogout: () => void }) {
     }
   }, [response]);
 
-  // When "Мои" is active, show user's own categories as facets (even if not in global facets list)
-  const visibleFacets: CategoryFacet[] = onlyInteresting && userCategories.length > 0
-    ? userCategories.map(uc => {
-        const match = facets.find(f =>
-          f.name.toLowerCase().includes(uc.toLowerCase()) ||
-          uc.toLowerCase().includes(f.name.toLowerCase())
-        );
-        return { name: match?.name ?? uc, count: match?.count ?? 0 };
-      })
+  const visibleFacets: CategoryFacet[] = onlyInteresting && userCategoryFacets.length > 0
+    ? userCategoryFacets
     : facets;
 
   const doSearch = useCallback(async (q: string, off = 0, sort = sortBy, cat = category) => {
@@ -501,7 +475,7 @@ function Main({ user, onLogout }: { user: User; onLogout: () => void }) {
                     <span style={{ fontSize: 11, color: category === f.name ? "rgba(255,255,255,.7)" : "#8C8C8C", flexShrink: 0, marginLeft: 4 }}>{f.count}</span>
                   </button>
                 ))}
-                {onlyInteresting && userCategories.length === 0 && (
+                {onlyInteresting && userCategoryFacets.length === 0 && (
                   <p style={{ fontSize: 11, color: "#8C8C8C", fontStyle: "italic", margin: "6px 0 0" }}>Нет данных о предпочтениях — нажмите «Все»</p>
                 )}
               </div>
