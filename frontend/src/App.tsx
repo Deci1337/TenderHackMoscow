@@ -281,12 +281,15 @@ function Main({ user, onLogout }: { user: User; onLogout: () => void }) {
     }
   }, [response]);
 
-  // Partial match: "Канцелярские товары" matches "Канцелярские товары и принадлежности"
-  const visibleFacets = onlyInteresting && userCategories.length > 0
-    ? facets.filter(f => userCategories.some(uc =>
-        f.name.toLowerCase().includes(uc.toLowerCase()) ||
-        uc.toLowerCase().includes(f.name.toLowerCase())
-      ))
+  // When "Мои" is active, show user's own categories as facets (even if not in global facets list)
+  const visibleFacets: CategoryFacet[] = onlyInteresting && userCategories.length > 0
+    ? userCategories.map(uc => {
+        const match = facets.find(f =>
+          f.name.toLowerCase().includes(uc.toLowerCase()) ||
+          uc.toLowerCase().includes(f.name.toLowerCase())
+        );
+        return { name: match?.name ?? uc, count: match?.count ?? 0 };
+      })
     : facets;
 
   const doSearch = useCallback(async (q: string, off = 0, sort = sortBy, cat = category) => {
@@ -498,8 +501,8 @@ function Main({ user, onLogout }: { user: User; onLogout: () => void }) {
                     <span style={{ fontSize: 11, color: category === f.name ? "rgba(255,255,255,.7)" : "#8C8C8C", flexShrink: 0, marginLeft: 4 }}>{f.count}</span>
                   </button>
                 ))}
-                {onlyInteresting && visibleFacets.length === 0 && facets.length > 0 && (
-                  <p style={{ fontSize: 11, color: "#8C8C8C", fontStyle: "italic", margin: "6px 0 0" }}>Нет категорий по профилю — показаны все</p>
+                {onlyInteresting && userCategories.length === 0 && (
+                  <p style={{ fontSize: 11, color: "#8C8C8C", fontStyle: "italic", margin: "6px 0 0" }}>Нет данных о предпочтениях — нажмите «Все»</p>
                 )}
               </div>
             </div>
