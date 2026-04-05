@@ -154,6 +154,23 @@ function Main({ user: initialUser, onLogout }: { user: User; onLogout: () => voi
   const [dislikedIds, setDislikedIds] = useState<Set<number>>(new Set());
   const viewedIds = useRef<Set<number>>(new Set());
   const [toast, setToast] = useState<string | null>(null);
+  const [learningFeedback, setLearningFeedback] = useState<{
+    action: "like" | "dislike";
+    itemName: string;
+    itemId: number;
+    query: string;
+    category?: string;
+    positionBefore: number;
+    positionAfter?: number;
+    lessons: string[];
+  } | null>(null);
+  const [learningLog, setLearningLog] = useState<Array<{
+    action: "like" | "dislike";
+    itemName: string;
+    query: string;
+    lesson: string;
+    timestamp: number;
+  }>>([]);
   const [history] = useState<string[]>(() => {
     try { return JSON.parse(localStorage.getItem("sh") || "[]"); } catch { return []; }
   });
@@ -282,13 +299,33 @@ function Main({ user: initialUser, onLogout }: { user: User; onLogout: () => voi
     }
   }
 
+  function buildLessons(action: "like" | "dislike", itemName: string, cat?: string): string[] {
+    const lessons: string[] = [];
+    if (action === "like") {
+      lessons.push(`Товар «${itemName}» получил +1.5 к score для запроса «${query}»`);
+      if (cat) lessons.push(`Категория «${cat}» повышена в приоритете для вашего профиля`);
+      lessons.push("При повторном поиске похожие товары будут выше в выдаче");
+    } else {
+      lessons.push(`Товар «${itemName}» получил -1.5 к score для запроса «${query}»`);
+      if (cat) lessons.push(`Система запомнила: товары категории «${cat}» менее релевантны для вас`);
+      lessons.push("При повторном поиске этот товар и похожие будут ниже");
+    }
+    return lessons;
+  }
+
   function handleLike(steId: number, cat?: string) {
     if (likedIds.has(steId)) return;
     setLikedIds(prev => { const s = new Set(prev); s.add(steId); return s; });
     setDislikedIds(prev => { const s = new Set(prev); s.delete(steId); return s; });
     trackAction(steId, "like", cat);
-    showToast("Оценено — пересчитываем позиции...");
+    const item = response?.results.find(r => r.id === steId);
+    const posBefore = (response?.results.findIndex(r => r.id === steId) ?? -1) + 1;
+    const itemName = item?.name ?? "товар";
+    const lessons = buildLessons("like", itemName, cat);
+    setLearningFeedback({ action: "like", itemName, itemId: steId, query, category: cat, positionBefore: posBefore, lessons });
+    setLearningLog(prev => [...prev, { action: "like", itemName, query, lesson: lessons[0], timestamp: Date.now() }]);
     setTimeout(() => doSearch(query, offset), 1500);
+    setTimeout(() => setLearningFeedback(null), 8000);
   }
 
   function handleDislike(steId: number, cat?: string) {
@@ -296,9 +333,27 @@ function Main({ user: initialUser, onLogout }: { user: User; onLogout: () => voi
     setDislikedIds(prev => { const s = new Set(prev); s.add(steId); return s; });
     setLikedIds(prev => { const s = new Set(prev); s.delete(steId); return s; });
     trackAction(steId, "dislike", cat);
-    showToast("Отмечено — пересчитываем позиции...");
+    const item = response?.results.find(r => r.id === steId);
+    const posBefore = (response?.results.findIndex(r => r.id === steId) ?? -1) + 1;
+    const itemName = item?.name ?? "товар";
+    const lessons = buildLessons("dislike", itemName, cat);
+    setLearningFeedback({ action: "dislike", itemName, itemId: steId, query, category: cat, positionBefore: posBefore, lessons });
+    setLearningLog(prev => [...prev, { action: "dislike", itemName, query, lesson: lessons[0], timestamp: Date.now() }]);
     setTimeout(() => doSearch(query, offset), 1500);
+    setTimeout(() => setLearningFeedback(null), 8000);
   }
+
+  // Update learning feedback with new position after re-search
+  useEffect(() => {
+    if (!learningFeedback || !response) return;
+    const newIdx = response.results.findIndex(r => r.id === learningFeedback.itemId);
+    if (newIdx >= 0) {
+      const newPos = newIdx + 1;
+      if (newPos !== learningFeedback.positionBefore && learningFeedback.positionAfter === undefined) {
+        setLearningFeedback(prev => prev ? { ...prev, positionAfter: newPos } : null);
+      }
+    }
+  }, [response]); // eslint-disable-line react-hooks/exhaustive-deps
 
   function onInputChange(val: string) {
     setInputVal(val);
@@ -651,14 +706,67 @@ function Main({ user: initialUser, onLogout }: { user: User; onLogout: () => voi
           userLabel={user.label}
           lastQuery={query}
           sessionClicks={sessionClicks}
+          learningLog={learningLog}
           onClose={() => setShowInterestPanel(false)}
         />
       )}
 
       {/* TOAST */}
-      {toast && (
+      {toast && !learningFeedback && (
         <div style={{ position: "fixed", bottom: 24, left: "50%", transform: "translateX(-50%)", background: "#1A1A1A", color: "#fff", padding: "10px 20px", borderRadius: 6, fontSize: 13, zIndex: 9999, boxShadow: "0 4px 16px rgba(0,0,0,.25)", pointerEvents: "none" }}>
           {toast}
+        </div>
+      )}
+
+      {/* Learning feedback card */}
+      {learningFeedback && (
+        <div style={{
+          position: "fixed", bottom: 24, right: 24, width: 380, background: "#fff",
+          borderRadius: 10, boxShadow: "0 8px 32px rgba(0,0,0,.2)", zIndex: 9999,
+          border: `2px solid ${learningFeedback.action === "like" ? "#0D9B68" : "#DB2B21"}`,
+          overflow: "hidden",
+        }}>
+          <div style={{
+            padding: "10px 14px",
+            background: learningFeedback.action === "like" ? "#E6F7F1" : "#FDECEA",
+            display: "flex", justifyContent: "space-between", alignItems: "center",
+          }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+              <Brain size={14} color={learningFeedback.action === "like" ? "#0D9B68" : "#DB2B21"} />
+              <span style={{ fontSize: 12, fontWeight: 700, color: learningFeedback.action === "like" ? "#0D9B68" : "#DB2B21" }}>
+                Нейросеть дообучилась
+              </span>
+            </div>
+            <button onClick={() => setLearningFeedback(null)} style={{ background: "none", border: "none", cursor: "pointer", padding: 2, color: "#8C8C8C" }}><X size={12} /></button>
+          </div>
+          <div style={{ padding: "10px 14px", fontSize: 12, lineHeight: 1.7 }}>
+            <div style={{ marginBottom: 8, color: "#1A1A1A" }}>
+              Вы {learningFeedback.action === "like" ? "оценили положительно" : "отклонили"}{" "}
+              <b>«{learningFeedback.itemName}»</b>
+              {learningFeedback.query && learningFeedback.query !== "*" && <> по запросу «{learningFeedback.query}»</>}
+            </div>
+            <div style={{ fontSize: 11, fontWeight: 700, color: "#8C8C8C", textTransform: "uppercase", marginBottom: 4 }}>Что узнала нейросеть:</div>
+            {learningFeedback.lessons.map((l, i) => (
+              <div key={i} style={{ display: "flex", gap: 6, fontSize: 11, color: "#3A3A3A", padding: "2px 0" }}>
+                <span style={{ color: learningFeedback.action === "like" ? "#0D9B68" : "#DB2B21", fontWeight: 700, flexShrink: 0 }}>
+                  {learningFeedback.action === "like" ? "+" : "-"}
+                </span>
+                {l}
+              </div>
+            ))}
+            {learningFeedback.positionAfter != null && learningFeedback.positionAfter !== learningFeedback.positionBefore && (
+              <div style={{ marginTop: 8, padding: "6px 10px", background: "#F8FAFE", borderRadius: 4, fontSize: 11 }}>
+                <b>Позиция товара:</b>{" "}
+                #{learningFeedback.positionBefore} → #{learningFeedback.positionAfter}{" "}
+                <span style={{ color: learningFeedback.positionAfter < learningFeedback.positionBefore ? "#0D9B68" : "#DB2B21", fontWeight: 700 }}>
+                  ({learningFeedback.positionAfter < learningFeedback.positionBefore ? "поднялся" : "опустился"} на {Math.abs(learningFeedback.positionAfter - learningFeedback.positionBefore)})
+                </span>
+              </div>
+            )}
+          </div>
+          <div style={{ padding: "8px 14px", borderTop: "1px solid #E7EEF7", fontSize: 10, color: "#8C8C8C", background: "#F8FAFE" }}>
+            Всего сигналов обучения в этой сессии: <b style={{ color: "#264B82" }}>{learningLog.length}</b>
+          </div>
         </div>
       )}
 

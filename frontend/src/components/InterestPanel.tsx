@@ -8,11 +8,20 @@ interface SessionClick {
   name: string;
 }
 
+interface LearningEntry {
+  action: "like" | "dislike";
+  itemName: string;
+  query: string;
+  lesson: string;
+  timestamp: number;
+}
+
 interface InterestPanelProps {
   userInn: string;
   userLabel: string;
   lastQuery: string;
   sessionClicks: SessionClick[];
+  learningLog: LearningEntry[];
   onClose: () => void;
 }
 
@@ -124,7 +133,7 @@ function getCategoryDetail(cat: CategoryInterest): { line1: string; line2: strin
   return { line1, line2 };
 }
 
-export function InterestPanel({ userInn, userLabel, lastQuery, sessionClicks, onClose }: InterestPanelProps) {
+export function InterestPanel({ userInn, userLabel, lastQuery, sessionClicks, learningLog, onClose }: InterestPanelProps) {
   const [data, setData] = useState<UserInterestSummary | null>(null);
 
   useEffect(() => {
@@ -240,6 +249,26 @@ export function InterestPanel({ userInn, userLabel, lastQuery, sessionClicks, on
           })
         )}
       </div>
+
+      {/* Learning log */}
+      {learningLog.length > 0 && (
+        <div style={{ padding: "12px 16px", borderTop: "1px solid #E7EEF7" }}>
+          <div style={{ fontSize: 10, fontWeight: 700, color: "#264B82", textTransform: "uppercase", letterSpacing: 0.8, marginBottom: 8 }}>
+            Дообучение нейросети ({learningLog.length})
+          </div>
+          {learningLog.slice(-5).reverse().map((entry, i) => (
+            <div key={i} style={{ marginBottom: 8, padding: "6px 8px", background: entry.action === "like" ? "#F0FFF7" : "#FFF5F5", borderRadius: 4, fontSize: 11 }}>
+              <div style={{ display: "flex", gap: 4, alignItems: "center", marginBottom: 2 }}>
+                <span style={{ fontWeight: 700, color: entry.action === "like" ? "#0D9B68" : "#DB2B21" }}>
+                  {entry.action === "like" ? "+" : "-"}
+                </span>
+                <span style={{ fontWeight: 600, color: "#1A1A1A" }}>«{entry.itemName}»</span>
+              </div>
+              <div style={{ color: "#7F8792", lineHeight: 1.4 }}>{entry.lesson}</div>
+            </div>
+          ))}
+        </div>
+      )}
 
       {/* System conclusion */}
       {(displayData.active_interests.length > 0 || sessionClicks.length > 0) && (
