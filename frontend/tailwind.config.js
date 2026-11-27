@@ -42,7 +42,7 @@ export default {
         },
       },
       fontFamily: {
-        sans: ['"Inter"', '"Segoe UI"', "Roboto", "sans-serif"],
+        sans: ["Open Sans", "sans-serif"],
       },
       fontSize: {
         "2xs": ["0.625rem", { lineHeight: "0.875rem" }],
