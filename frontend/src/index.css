@@ -93,3 +93,20 @@ h1 { font-weight: 700 !important; line-height: 1.3; }
  .kit-dialog > div { padding: 24px !important; }
 }
 @media (prefers-reduced-motion: reduce) { *,*::before,*::after { animation-duration: .01ms !important; transition: none !important; } }
+
+/* Focused unslop pass: category selection carries less weight than the search action. */
+.catalog-filters { width: 260px; flex-shrink: 0; background: var(--surface); position: sticky; top: 16px; max-height: calc(100vh - 32px); display: flex; flex-direction: column; }
+.filter-heading { display: flex; align-items: center; justify-content: space-between; gap: 16px; width: 100%; padding: 16px; color: var(--text); background: var(--surface); border: 0; font-size: 18px; font-weight: 600; text-align: left; }
+.filter-heading > span { display: flex; align-items: center; gap: 8px; }
+.filter-fields { padding: 24px 16px 16px; overflow-y: auto; }
+.filter-group + .filter-group { margin-top: 24px; }
+.filter-label { display: block; font-size: 16px !important; line-height: 24px; font-weight: 600; margin: 0 0 12px; color: var(--text); }
+.filter-interests { display: flex; align-items: center; gap: 12px; min-height: 44px; margin: 0 0 8px; font-size: 14px; color: var(--muted); cursor: pointer; }
+.filter-interests input { width: 18px; height: 18px; margin: 0; accent-color: var(--accent); flex-shrink: 0; }
+.filter-category-list { display: flex; flex-direction: column; gap: 4px; }
+.filter-category { display: flex; align-items: center; justify-content: space-between; gap: 12px; width: 100%; padding: 10px 12px; background: var(--surface); color: var(--text); border: 1px solid transparent; text-align: left; font-size: 14px; line-height: 22px; }
+.filter-category > span:first-child { min-width: 0; overflow-wrap: anywhere; }
+.filter-category:hover { background: var(--canvas); }
+.filter-category[aria-pressed="true"] { color: var(--accent); background: var(--canvas); border-color: var(--border); box-shadow: inset 3px 0 var(--accent); font-weight: 600; }
+.filter-count { min-width: 20px; flex-shrink: 0; text-align: right; color: var(--muted); font-size: 13px; font-weight: 400; }
+.filter-help { font-size: 13px; line-height: 20px; color: var(--muted); margin: 12px 0 0; }

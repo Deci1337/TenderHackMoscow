@@ -36,3 +36,7 @@ The requested design-taste-frontend and frontend-design skills informed hierarch
 The requested unslop workflow and its signs/tokens/refs/visuals references informed spacing, copy, icon consistency and responsive review. Unslop by Damir Sokolovsky ([@heydamir](https://x.com/heydamir)), https://heydamir.design/unslop, CC BY 4.0. No generated illustrations are used.
 
 A provisional taste gate attempt could not launch its Chrome checker and could not lint the profile selector; its ERROR is recorded in external run evidence, not represented as a pass. Final evidence is the project build and actual focused Playwright interactions/screenshots against the implemented kit.
+
+## Focused filter-panel unslop pass
+
+The filter panel uses explicit sort/category labels, a native 48px filled select, a labeled checkbox and aligned category counts. A selected category has the kit's pale-blue surface with blue text/inset indicator instead of a solid blue block. The checkbox “Показать мои категории” changes only the available category options to the profile's facets; it neither selects a category nor immediately searches. The original fallback to all facets when the profile has no category data is retained and described accurately. Category buttons expose their selected state with `aria-pressed`, and the filter disclosure exposes `aria-expanded`.

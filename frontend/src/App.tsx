@@ -5,7 +5,7 @@ import {
 import { api, STEResult, SearchResponse, CategoryFacet } from "./api/client";
 import {
   Search, LogOut, ChevronRight, ChevronDown, Loader2, PackageSearch,
-  ThumbsDown, ThumbsUp, X, SlidersHorizontal, ArrowUpDown, Brain,
+  ThumbsDown, ThumbsUp, X, SlidersHorizontal, Brain,
 } from "lucide-react";
 import { usePortalDialog } from "./components/usePortalDialog";
 import { InterestPanel } from "./components/InterestPanel";
@@ -477,54 +477,37 @@ function Main({ user: initialUser, onLogout }: { user: User; onLogout: () => voi
       {/* BODY: sidebar + results */}
       <div style={{ maxWidth: 1280, margin: "0 auto", padding: "16px 16px", display: "flex", gap: 16, alignItems: "flex-start" }}>
         {/* SIDEBAR */}
-        <aside className="catalog-filters" style={{ width: 260, flexShrink: 0, background: "var(--surface)", border: "1px solid var(--border)", borderRadius: 6, overflow: "hidden", position: "sticky", top: 16, maxHeight: "calc(100vh - 32px)", display: "flex", flexDirection: "column" }}>
-          <button onClick={() => setShowFilters(!showFilters)}
-            style={{ display: "flex", alignItems: "center", justifyContent: "space-between", width: "100%", padding: "12px 14px", border: "none", background: "transparent", cursor: "pointer", fontSize: 15, fontWeight: 600, color: "var(--text)" }}>
-            <span style={{ display: "flex", alignItems: "center", gap: 6 }}><SlidersHorizontal size={14} /> Фильтры</span>
-            <ChevronDown size={14} style={{ transform: showFilters ? "rotate(180deg)" : "none", transition: "transform .2s" }} />
+        <aside className="catalog-filters" aria-label="Фильтры каталога">
+          <button className="filter-heading" aria-expanded={showFilters} aria-controls="catalog-filter-fields" onClick={() => setShowFilters(!showFilters)}>
+            <span><SlidersHorizontal size={18} aria-hidden="true" /> Фильтры</span>
+            <ChevronDown size={18} aria-hidden="true" style={{ transform: showFilters ? "rotate(180deg)" : "none" }} />
           </button>
           {showFilters && (
-            <div style={{ padding: "0 14px 14px", overflowY: "auto", flex: 1 }}>
-              {/* Sort */}
-              <div style={{ marginBottom: 14 }}>
-                <div style={{ fontSize: 13, fontWeight: 600, color: "var(--muted)", textTransform: "none", marginBottom: 6, display: "flex", alignItems: "center", gap: 4 }}><ArrowUpDown size={11} /> Сортировка</div>
-                <select className="kit-dropdown" aria-label="Сортировка" value={sortBy} onChange={e => selectSort(e.target.value)}>
+            <div className="filter-fields" id="catalog-filter-fields">
+              <div className="filter-group">
+                <label className="filter-label" htmlFor="catalog-sort">Сортировка</label>
+                <select id="catalog-sort" className="kit-dropdown" value={sortBy} onChange={e => selectSort(e.target.value)}>
                   {SORT_OPTIONS.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
                 </select>
               </div>
-              {/* Categories */}
-              <div>
-                <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 6 }}>
-                  <div style={{ fontSize: 13, fontWeight: 600, color: "var(--muted)", textTransform: "none" }}>Категория</div>
-                  <button onClick={() => setOnlyInteresting(v => !v)}
-                    style={{ padding: "2px 8px", borderRadius: 20, fontSize: 12, border: "1px solid", cursor: "pointer",
-                      borderColor: onlyInteresting ? "var(--accent)" : "var(--border)",
-                      background: onlyInteresting ? "var(--accent)" : "var(--surface)",
-                      color: onlyInteresting ? "var(--surface)" : "var(--muted)" }}>
-                    {onlyInteresting ? "Мои" : "Все"}
+              <div className="filter-group">
+                <h2 className="filter-label" id="catalog-categories-label">Категории</h2>
+                <label className="filter-interests">
+                  <input type="checkbox" checked={onlyInteresting} onChange={e => setOnlyInteresting(e.target.checked)} />
+                  <span>Показать мои категории</span>
+                </label>
+                <div className="filter-category-list" role="group" aria-labelledby="catalog-categories-label">
+                  <button className="filter-category" aria-pressed={category === null} onClick={() => selectCategory(null)}>
+                    <span>Все категории</span>
                   </button>
+                  {visibleFacets.map(f => (
+                    <button className="filter-category" key={f.name} aria-pressed={category === f.name} onClick={() => selectCategory(f.name)}>
+                      <span>{f.name}</span><span className="filter-count">{f.count}</span>
+                    </button>
+                  ))}
                 </div>
-                <button onClick={() => selectCategory(null)}
-                  style={{ display: "flex", justifyContent: "space-between", width: "100%", textAlign: "left", padding: "5px 10px", border: "none", borderRadius: 3, cursor: "pointer", fontSize: 15, marginBottom: 2,
-                    background: category === null ? "var(--accent)" : "transparent",
-                    color: category === null ? "var(--surface)" : "var(--text)" }}
-                  onMouseEnter={e => { if (category !== null) e.currentTarget.style.background = "var(--canvas)"; }}
-                  onMouseLeave={e => { if (category !== null) e.currentTarget.style.background = "transparent"; }}
-                >Все категории</button>
-                {visibleFacets.map(f => (
-                  <button key={f.name} onClick={() => selectCategory(f.name)}
-                    style={{ display: "flex", justifyContent: "space-between", width: "100%", textAlign: "left", padding: "5px 10px", border: "none", borderRadius: 3, cursor: "pointer", fontSize: 14, marginBottom: 1,
-                      background: category === f.name ? "var(--accent)" : "transparent",
-                      color: category === f.name ? "var(--surface)" : "var(--text)" }}
-                    onMouseEnter={e => { if (category !== f.name) e.currentTarget.style.background = "var(--canvas)"; }}
-                    onMouseLeave={e => { if (category !== f.name) e.currentTarget.style.background = "transparent"; }}
-                  >
-                    <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{f.name}</span>
-                    <span style={{ fontSize: 13, color: category === f.name ? "rgba(255,255,255,.7)" : "var(--muted)", flexShrink: 0, marginLeft: 4 }}>{f.count}</span>
-                  </button>
-                ))}
                 {onlyInteresting && userCategoryFacets.length === 0 && (
-                  <p style={{ fontSize: 13, color: "var(--muted)", fontStyle: "normal", margin: "6px 0 0" }}>Нет данных о предпочтениях — нажмите «Все»</p>
+                  <p className="filter-help">В профиле пока нет категорий — показаны все</p>
                 )}
               </div>
             </div>
