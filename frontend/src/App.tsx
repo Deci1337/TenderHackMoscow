@@ -421,7 +421,7 @@ function Main({ user: initialUser, onLogout }: { user: User; onLogout: () => voi
         </div>
       </header>
 
-      <div className="project-context"><span>TenderHack · Москва</span><span>Хакатонный прототип</span></div>
+      <div className="project-context"><span>Система поиска СТЕ для Портала поставщиков</span></div>
       {/* SEARCH BAR */}
       <div style={{ background: "var(--surface)", borderBottom: "1px solid var(--border)" }}>
         <div style={{ maxWidth: 1280, margin: "0 auto", padding: "32px 24px 24px" }}>
