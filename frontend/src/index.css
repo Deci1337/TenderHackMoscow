@@ -2,11 +2,94 @@
 @tailwind components;
 @tailwind utilities;
 
-@layer base {
-  * { box-sizing: border-box; }
-  body {
-    @apply text-portal-black bg-portal-blue-pale font-sans antialiased m-0;
-  }
-  button { cursor: pointer; }
-  input, button, select, textarea { font-family: inherit; }
+/* Portal kit: exact source nodes and adaptation notes in docs/design-provenance.md. */
+@font-face { font-family: "Open Sans"; src: url("/fonts/OpenSans-Variable.ttf") format("truetype"); font-style: normal; font-weight: 300 800; font-display: swap; }
+:root {
+  font-family: "Open Sans", sans-serif; font-variant-numeric: tabular-nums;
+  --accent: #264B82; --primary: #DB2B21; --border: #D4DBE6; --canvas: #E7EEF7;
+  --surface: #fff; --text: #1A1A1A; --muted: #656F7D; --text-secondary: #264B82;
+  --text-strong: #1A1A1A; --text-detail: #167C85; --text-dim: #656F7D;
+  --border-hover: #264B82; --neutral-soft: #E7EEF7; --neutral-panel: #E7EEF7; --surface-soft: #E7EEF7;
+  --success: #0D9B68; --success-border: #B2DFD0; --success-soft: #E6F7F1; --success-panel: #E8F8F2; --success-wash: #F0FFF7;
+  --info: #48B8C2; --danger: #DB2B21; --danger-soft: #FDECEA; --danger-wash: #FFF5F5;
+  --warning: #F67319; --warning-soft: #FEF3EB; --accent-soft: #E7EEF7; --highlight: #FFF3CD;
 }
+* { box-sizing: border-box; }
+body { margin: 0; font-family: "Open Sans", sans-serif; color: var(--text); background: var(--canvas); line-height: 1.5; -webkit-font-smoothing: antialiased; }
+button,input,select,textarea { font-family: inherit; line-height: 1.5; }
+button { cursor: pointer; }
+button:focus-visible,input:focus-visible,select:focus-visible,[tabindex]:focus-visible { outline: 3px solid var(--accent) !important; outline-offset: 3px; }
+button:disabled { cursor: wait; opacity: .55; }
+h1,h2,h3,p { overflow-wrap: anywhere; }
+h3 { margin: 0; }
+.portal-logo { width: 180px; height: 40px; object-fit: contain; flex-shrink: 0; }
+.portal-header { border-bottom: 1px solid var(--border); }
+.portal-header > div { padding-inline: 28px !important; }
+.portal-header > div > div { gap: 32px !important; }
+.portal-header button { color: var(--accent) !important; border: 1px solid var(--border) !important; background: var(--surface) !important; min-height: 48px; padding: 12px 16px !important; border-radius: 0 !important; }
+.portal-header button:hover { border-color: var(--accent) !important; background: var(--canvas) !important; }
+.portal-header svg { width: 20px; height: 20px; }
+.workspace-label { font-size: 16px; color: var(--accent); border-left: 1px solid var(--border); padding-left: 32px; }
+.project-context { max-width: 1280px; margin: auto; padding: 20px 28px; display: flex; justify-content: space-between; font-size: 14px; color: var(--muted); }
+.project-context > span:first-child { color: var(--accent); font-weight: 600; }
+h1 { font-weight: 700 !important; line-height: 1.3; }
+.catalog-description { color: var(--muted); font-size: 18px; line-height: 26px; margin: 12px 0; }
+.kit-search { align-items: flex-start; gap: 16px !important; margin-block: 20px 4px; }
+.kit-search input { height: 48px; font-size: 18px !important; }
+.kit-primary { min-width: 128px; height: 48px; background: var(--primary) !important; border-radius: 0 !important; font-size: 16px !important; }
+.kit-primary:hover { filter: brightness(.92); }
+.kit-suggestions { border-radius: 0 !important; }
+.kit-suggestions button { min-height: 48px; }
+.kit-dropdown { display: block; width: 100%; height: 48px; padding: 12px 16px; border: 1px solid transparent; border-radius: 0; background: var(--canvas); font-size: 16px; color: var(--text); }
+.kit-dropdown:hover { border-color: var(--border-hover); }
+.catalog-filters { border: 0 !important; border-radius: 0 !important; }
+.catalog-filters button { min-height: 44px; border-radius: 0 !important; }
+.catalog-filters > button { min-height: 56px; border-bottom: 1px solid var(--border) !important; }
+.result-card { padding: 12px !important; border: 0 !important; border-radius: 0 !important; background: var(--canvas) !important; }
+.result-card > div { background: var(--surface); }
+.result-card > div:first-child { padding: 24px !important; }
+.result-card > div:last-child { padding: 8px 16px !important; border-top: 1px solid var(--border) !important; }
+.result-card h3 { flex: 1; }
+.product-title { background: transparent; border: 0; padding: 0; text-align: left; font-size: 20px !important; line-height: 1.35 !important; color: var(--accent) !important; }
+.product-title:hover { text-decoration: underline; text-underline-offset: 4px; }
+.catalog-results svg { flex-shrink: 0; }
+.catalog-results button { min-height: 40px; }
+.result-card > div:first-child > div:first-child > div:nth-child(2) > span:last-child { color: var(--accent) !important; }
+.profile-screen > div { border: 0; border-radius: 0 !important; padding: 16px; background: var(--canvas) !important; }
+.profile-screen > div > div { background: var(--surface) !important; }
+.profile-screen > div > div:first-child { padding: 32px !important; border-bottom: 1px solid var(--border); color: var(--text) !important; }
+.profile-screen > div > div:first-child > div:last-child { color: var(--muted) !important; }
+.profile-screen > div > div:nth-child(2) { padding: 24px !important; }
+.profile-screen button { min-height: 96px; border-radius: 0 !important; }
+.profile-screen button:hover { background: var(--canvas) !important; }
+.kit-modal-backdrop { background: rgba(231,238,247,.94) !important; }
+.kit-dialog { position: relative; width: min(648px,100%); max-height: 90vh; overflow: auto; background: var(--surface); box-shadow: 0 16px 48px rgba(38,75,130,.16); }
+.kit-dialog > div { padding: 24px 56px !important; border-radius: 0 !important; }
+.kit-dialog > div:first-child { background: var(--surface) !important; color: var(--text) !important; }
+.kit-dialog > div:first-child h2 { font-size: 24px !important; line-height: 32px; font-weight: 700 !important; }
+.kit-dialog > div:first-child button { color: var(--accent) !important; background: var(--surface) !important; min-width: 40px; min-height: 40px; }
+.kit-dialog > div:last-child { border-top: 1px solid var(--border); }
+.kit-dialog table { font-size: 16px !important; }
+.kit-dialog td { padding-block: 12px !important; }
+.kit-dialog button { border-radius: 0 !important; min-height: 40px; }
+@media (max-width: 760px) {
+ .portal-header > div { height: auto !important; min-height: 80px; padding: 20px !important; align-items: flex-start !important; gap: 20px; flex-wrap: wrap; }
+ .portal-header > div > div { gap: 16px !important; flex-wrap: wrap; }
+ .portal-logo { width: 180px; height: 40px; }
+ .workspace-label { padding-left: 0; border: 0; }
+ .project-context { padding: 16px; gap: 12px; font-size: 12px; }
+ h1 { font-size: 28px !important; line-height: 1.3; }
+ .catalog-description { font-size: 16px; line-height: 24px; }
+ div:has(> .catalog-filters) { flex-direction: column; padding: 16px !important; }
+ .catalog-filters { width: 100% !important; position: static !important; max-height: 360px !important; }
+ .catalog-results { width: 100%; }
+ .result-card > div:first-child { padding: 16px !important; }
+ .result-card > div:first-child > div:first-child { flex-direction: column !important; align-items: stretch !important; }
+ .result-card > div:first-child > div:first-child > div:first-child { min-width: 0; width: 100%; }
+ .result-card > div:first-child > div:first-child > div:nth-child(2) { flex-direction: row !important; align-items: center !important; gap: 12px !important; flex-wrap: wrap; }
+ .kit-search { flex-wrap: wrap; }
+ .kit-search > div:first-child { flex-basis: 100%; }
+ .kit-primary { width: 100%; }
+ .kit-dialog > div { padding: 24px !important; }
+}
+@media (prefers-reduced-motion: reduce) { *,*::before,*::after { animation-duration: .01ms !important; transition: none !important; } }

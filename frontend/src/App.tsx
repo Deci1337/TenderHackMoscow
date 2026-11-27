@@ -7,6 +7,7 @@ import {
   Search, LogOut, ChevronRight, ChevronDown, Loader2, PackageSearch,
   ThumbsDown, ThumbsUp, X, SlidersHorizontal, ArrowUpDown, Brain,
 } from "lucide-react";
+import { usePortalDialog } from "./components/usePortalDialog";
 import { InterestPanel } from "./components/InterestPanel";
 
 const PAGE_SIZE = 20;
@@ -17,10 +18,10 @@ const SORT_OPTIONS = [
   { value: "popularity", label: "По популярности" },
 ] as const;
 const BADGE_STYLES: Record<string, CSSProperties> = {
-  history: { background: "#E6F7F1", color: "#0D9B68" },
-  category: { background: "#E5F4F5", color: "#167C85" },
-  session: { background: "#FEF3EB", color: "#F67319" },
-  negative: { background: "#FDECEA", color: "#DB2B21" },
+  history: { background: "var(--success-soft)", color: "var(--success)" },
+  category: { background: "var(--neutral-soft)", color: "var(--text-detail)" },
+  session: { background: "var(--warning-soft)", color: "var(--warning)" },
+  negative: { background: "var(--danger-soft)", color: "var(--danger)" },
 };
 
 interface User { id: string; label: string; interests: string[] }
@@ -63,9 +64,6 @@ const DEMO_PROFILES_BASE: Omit<DemoProfile, "categories" | "contracts">[] = [
 ];
 
 /* ===================  DEMO SELECTOR  =================== */
-const INDUSTRY_ICONS: Record<string, string> = {
-  "Образование": "📚", "Медицина": "🏥", "Строительство": "🏗️", "Не определена": "👤",
-};
 
 function DemoSelector({ onDone }: { onDone: (u: User) => void }) {
   const profiles: DemoProfile[] = [
@@ -84,37 +82,37 @@ function DemoSelector({ onDone }: { onDone: (u: User) => void }) {
   }
 
   return (
-    <div style={{ minHeight: "100vh", background: "#E7EEF7", display: "flex", alignItems: "center", justifyContent: "center", padding: 16 }}>
-      <div style={{ background: "#fff", borderRadius: 8, boxShadow: "0 4px 24px rgba(0,0,0,.12)", width: "100%", maxWidth: 460, overflow: "hidden" }}>
-        <div style={{ background: "#264B82", padding: "20px 24px", color: "#fff" }}>
+    <div className="profile-screen" style={{ minHeight: "100vh", background: "var(--canvas)", display: "flex", alignItems: "center", justifyContent: "center", padding: 16 }}>
+      <div style={{ background: "var(--surface)", borderRadius: 8, boxShadow: "none", width: "100%", maxWidth: 560, overflow: "hidden" }}>
+        <div style={{ background: "var(--accent)", padding: "20px 24px", color: "var(--surface)" }}>
           <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 12 }}>
-            <img src="https://zakupki.mos.ru/cms/Media/holidaysthemes/pplogo/pp_logo_government_customer_day.svg" alt="Портал поставщиков" style={{ height: 28 }} />
+            <img className="portal-logo" src="/brand/portal-logo.svg" width="180" height="40" alt="Портал поставщиков" />
           </div>
-          <div style={{ fontWeight: 700, fontSize: 18 }}>Умный поиск СТЕ</div>
-          <div style={{ fontSize: 13, color: "#a3bfe0", marginTop: 4 }}>
+          <div style={{ fontWeight: 600, fontSize: 20 }}>Умный поиск СТЕ</div>
+          <div style={{ fontSize: 15, color: "var(--accent-soft)", marginTop: 4 }}>
             Система определяет интересы по истории закупок и поведению
           </div>
         </div>
         <div style={{ padding: "16px 24px 24px", display: "flex", flexDirection: "column", gap: 10 }}>
-          <div style={{ fontSize: 11, fontWeight: 700, color: "#8C8C8C", textTransform: "uppercase", letterSpacing: 0.8, marginBottom: 2 }}>Выберите профиль для демонстрации</div>
+          <div style={{ fontSize: 13, fontWeight: 600, color: "var(--muted)", textTransform: "none", letterSpacing: 0, marginBottom: 2 }}>Демонстрационный профиль</div>
           {profiles.map(u => (
             <button key={u.id} onClick={() => pick(u)}
               style={{
                 padding: "12px 14px", borderRadius: 6, textAlign: "left",
-                border: u.isNew ? "1px dashed #D4DBE6" : "1px solid #D4DBE6",
-                background: u.isNew ? "#F8FAFE" : "#fff", cursor: "pointer",
+                border: u.isNew ? "1px dashed var(--border)" : "1px solid var(--border)",
+                background: u.isNew ? "var(--surface-soft)" : "var(--surface)", cursor: "pointer",
               }}
-              onMouseEnter={e => (e.currentTarget.style.borderColor = "#264B82")}
-              onMouseLeave={e => (e.currentTarget.style.borderColor = "#D4DBE6")}
+              onMouseEnter={e => (e.currentTarget.style.borderColor = "var(--accent)")}
+              onMouseLeave={e => (e.currentTarget.style.borderColor = "var(--border)")}
             >
               <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
-                <span style={{ fontSize: 18 }}>{INDUSTRY_ICONS[u.industry] ?? "🏢"}</span>
+                <PackageSearch size={24} aria-hidden="true" />
                 <div>
-                  <span style={{ fontWeight: 700, fontSize: 14, color: "#1A1A1A" }}>{u.label}</span>
+                  <span style={{ fontWeight: 600, fontSize: 16, color: "var(--text)" }}>{u.label}</span>
                   {!u.isNew && (
-                    <span style={{ fontSize: 10, background: "#E7EEF7", color: "#264B82", borderRadius: 3, padding: "1px 6px", fontWeight: 600, marginLeft: 6 }}>{u.industry}</span>
+                    <span style={{ fontSize: 12, background: "var(--canvas)", color: "var(--accent)", borderRadius: 3, padding: "1px 6px", fontWeight: 600, marginLeft: 6 }}>{u.industry}</span>
                   )}
-                  <div style={{ fontSize: 12, color: "#8C8C8C", marginTop: 2 }}>{u.description}</div>
+                  <div style={{ fontSize: 14, color: "var(--muted)", marginTop: 2 }}>{u.description}</div>
                 </div>
               </div>
             </button>
@@ -146,7 +144,7 @@ function Main({ user: initialUser, onLogout }: { user: User; onLogout: () => voi
   const [sortBy, setSortBy] = useState("relevance");
   const [category, setCategory] = useState<string | null>(null);
   const [facets, setFacets] = useState<CategoryFacet[]>([]);
-  const [showFilters, setShowFilters] = useState(true);
+  const [showFilters, setShowFilters] = useState(() => window.innerWidth >= 760);
   const [suggestions, setSuggestions] = useState<string[]>([]);
   const [showSuggestions, setShowSuggestions] = useState(false);
   const [likedIds, setLikedIds] = useState<Set<number>>(new Set());
@@ -403,83 +401,85 @@ function Main({ user: initialUser, onLogout }: { user: User; onLogout: () => voi
   }
 
   return (
-    <div style={{ minHeight: "100vh", background: "#E7EEF7" }}>
+    <div style={{ minHeight: "100vh", background: "var(--canvas)" }}>
       {/* HEADER */}
-      <header style={{ background: "#264B82", color: "#fff" }}>
-        <div style={{ maxWidth: 1100, margin: "0 auto", padding: "0 16px", height: 48, display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+      <header className="portal-header" style={{ background: "var(--surface)", color: "var(--text)" }}>
+        <div style={{ maxWidth: 1280, margin: "0 auto", padding: "0 16px", height: 80, display: "flex", alignItems: "center", justifyContent: "space-between" }}>
           <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-            <img src="https://zakupki.mos.ru/cms/Media/holidaysthemes/pplogo/pp_logo_government_customer_day.svg" alt="Портал поставщиков" style={{ height: 24 }} />
-            <span style={{ color: "#a3bfe0", fontSize: 12, marginLeft: 4 }}>/ Умный поиск</span>
+            <img className="portal-logo" src="/brand/portal-logo.svg" width="180" height="40" alt="Портал поставщиков" />
+            <span className="workspace-label">Умный поиск СТЕ</span>
           </div>
           <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
             <button onClick={() => setShowInterestPanel(v => !v)}
-              style={{ background: showInterestPanel ? "rgba(255,255,255,.3)" : "rgba(255,255,255,.15)", border: "none", color: "#fff", padding: "4px 10px", borderRadius: 4, fontSize: 13, cursor: "pointer", display: "flex", alignItems: "center", gap: 5 }}>
+              style={{ background: showInterestPanel ? "rgba(255,255,255,.3)" : "rgba(255,255,255,.15)", border: "none", color: "var(--surface)", padding: "4px 10px", borderRadius: 4, fontSize: 15, cursor: "pointer", display: "flex", alignItems: "center", gap: 5 }}>
               <Brain size={13} /> Интересы
             </button>
-            <button onClick={onLogout} style={{ background: "rgba(255,255,255,.15)", border: "none", color: "#fff", padding: "4px 12px", borderRadius: 4, fontSize: 13, cursor: "pointer", display: "flex", alignItems: "center", gap: 6 }}>
+            <button onClick={onLogout} style={{ background: "rgba(255,255,255,.15)", border: "none", color: "var(--surface)", padding: "4px 12px", borderRadius: 4, fontSize: 15, cursor: "pointer", display: "flex", alignItems: "center", gap: 6 }}>
               {user.label} <LogOut size={14} />
             </button>
           </div>
         </div>
       </header>
 
+      <div className="project-context"><span>TenderHack · Москва</span><span>Хакатонный прототип</span></div>
       {/* SEARCH BAR */}
-      <div style={{ background: "#fff", borderBottom: "1px solid #D4DBE6" }}>
-        <div style={{ maxWidth: 1100, margin: "0 auto", padding: "16px 16px 12px" }}>
+      <div style={{ background: "var(--surface)", borderBottom: "1px solid var(--border)" }}>
+        <div style={{ maxWidth: 1280, margin: "0 auto", padding: "32px 24px 24px" }}>
           <div style={{ display: "flex", alignItems: "baseline", justifyContent: "space-between", marginBottom: 12 }}>
             <div>
-              <h1 style={{ fontSize: 18, fontWeight: 700, color: "#1A1A1A", margin: 0 }}>Каталог товаров СТЕ</h1>
+              <h1 style={{ fontSize: 40, fontWeight: 600, color: "var(--text)", margin: 0 }}>Каталог товаров СТЕ</h1>
+              <p className="catalog-description">Найдите нужный товар — по названию, категории и вашим интересам</p>
               {user.interests.length > 0 && (
-                <p style={{ fontSize: 13, color: "#8C8C8C", margin: "2px 0 0" }}>{user.interests.slice(0, 3).join(" · ")}</p>
+                <p style={{ fontSize: 15, color: "var(--muted)", margin: "2px 0 0" }}>{user.interests.slice(0, 3).join(" · ")}</p>
               )}
             </div>
-            {response && <span style={{ fontSize: 12, color: "#8C8C8C" }}>Найдено: <strong style={{ color: "#1A1A1A" }}>{response.total}</strong></span>}
+            {response && <span style={{ fontSize: 14, color: "var(--muted)" }}>Найдено: <strong style={{ color: "var(--text)" }}>{response.total}</strong></span>}
           </div>
-          <form onSubmit={e => { e.preventDefault(); doSearch(inputVal); }} style={{ display: "flex", gap: 8 }}>
+          <form className="kit-search" onSubmit={e => { e.preventDefault(); doSearch(inputVal); }} style={{ display: "flex", gap: 8 }}>
             <div style={{ flex: 1, position: "relative" }}>
-              <Search size={16} style={{ position: "absolute", left: 12, top: "50%", transform: "translateY(-50%)", color: "#8C8C8C", pointerEvents: "none" }} />
-              <input ref={inputRef} value={inputVal} onChange={e => onInputChange(e.target.value)} placeholder="Поиск по каталогу СТЕ..."
+              <Search size={16} style={{ position: "absolute", right: 16, top: "50%", transform: "translateY(-50%)", color: "var(--muted)", pointerEvents: "none" }} />
+              <input ref={inputRef} value={inputVal} onChange={e => onInputChange(e.target.value)} aria-label="Поиск по каталогу СТЕ" placeholder="Название товара или характеристики"
                 onFocus={() => { if (suggestions.length > 0) setShowSuggestions(true); }}
-                style={{ width: "100%", padding: "10px 36px", border: "2px solid #D4DBE6", borderRadius: 6, fontSize: 14, outline: "none", boxSizing: "border-box" }}
+                style={{ width: "100%", height: 48, padding: "12px 88px 12px 16px", border: "1px solid var(--border)", borderRadius: 0, fontSize: 16, outline: "none", boxSizing: "border-box" }}
               />
               {inputVal && (
-                <button type="button" onClick={() => { setInputVal(""); setSuggestions([]); }}
-                  style={{ position: "absolute", right: 8, top: "50%", transform: "translateY(-50%)", background: "none", border: "none", cursor: "pointer", color: "#8C8C8C" }}>
+                <button aria-label="Очистить поиск" type="button" onClick={() => { setInputVal(""); setSuggestions([]); }}
+                  style={{ position: "absolute", right: 48, top: "50%", transform: "translateY(-50%)", background: "none", border: "none", cursor: "pointer", color: "var(--muted)" }}>
                   <X size={16} />
                 </button>
               )}
               {showSuggestions && (
-                <div ref={suggestRef} style={{ position: "absolute", top: "100%", left: 0, right: 0, background: "#fff", border: "1px solid #D4DBE6", borderTop: "none", borderRadius: "0 0 6px 6px", zIndex: 50, boxShadow: "0 4px 12px rgba(0,0,0,.08)", maxHeight: 240, overflow: "auto" }}>
+                <div className="kit-suggestions" ref={suggestRef} style={{ position: "absolute", top: "100%", left: 0, right: 0, background: "var(--surface)", border: "1px solid var(--border)", borderTop: "none", borderRadius: "0 0 6px 6px", zIndex: 50, boxShadow: "0 4px 12px rgba(0,0,0,.08)", maxHeight: 240, overflow: "auto" }}>
                   {suggestions.map((s, i) => (
                     <button key={i} type="button" onClick={() => pickSuggestion(s)}
-                      style={{ display: "block", width: "100%", textAlign: "left", padding: "8px 12px", border: "none", background: "transparent", cursor: "pointer", fontSize: 14, color: "#1A1A1A" }}
-                      onMouseEnter={e => (e.currentTarget.style.background = "#E7EEF7")}
+                      style={{ display: "block", width: "100%", textAlign: "left", padding: "8px 12px", border: "none", background: "transparent", cursor: "pointer", fontSize: 16, color: "var(--text)" }}
+                      onMouseEnter={e => (e.currentTarget.style.background = "var(--canvas)")}
                       onMouseLeave={e => (e.currentTarget.style.background = "transparent")}
                     >
-                      <Search size={12} style={{ marginRight: 8, color: "#8C8C8C", verticalAlign: "middle" }} />
+                      <Search size={12} style={{ marginRight: 8, color: "var(--muted)", verticalAlign: "middle" }} />
                       {s}
                     </button>
                   ))}
                 </div>
               )}
             </div>
-            <button type="submit" style={{ padding: "0 20px", background: "#264B82", color: "#fff", border: "none", borderRadius: 6, fontWeight: 600, fontSize: 14, cursor: "pointer", whiteSpace: "nowrap" }}>Найти</button>
+            <button className="kit-primary" type="submit" style={{ padding: "0 20px", background: "var(--accent)", color: "var(--surface)", border: "none", borderRadius: 6, fontWeight: 600, fontSize: 16, cursor: "pointer", whiteSpace: "nowrap" }}>Найти</button>
           </form>
           {response?.corrected_query && (
-            <p style={{ marginTop: 8, fontSize: 13, color: "#F67319" }}>Исправлено: показаны результаты по запросу <strong>«{response.corrected_query}»</strong></p>
+            <p style={{ marginTop: 8, fontSize: 15, color: "var(--warning)" }}>Исправлено: показаны результаты по запросу <strong>«{response.corrected_query}»</strong></p>
           )}
           {response?.did_you_mean && (
-            <p style={{ marginTop: 4, fontSize: 12, color: "#167C85", background: "#E5F4F5", display: "inline-block", padding: "4px 10px", borderRadius: 4 }}>{response.did_you_mean}</p>
+            <p style={{ marginTop: 4, fontSize: 14, color: "var(--text-detail)", background: "var(--neutral-soft)", display: "inline-block", padding: "4px 10px", borderRadius: 4 }}>{response.did_you_mean}</p>
           )}
         </div>
       </div>
 
       {/* BODY: sidebar + results */}
-      <div style={{ maxWidth: 1100, margin: "0 auto", padding: "16px 16px", display: "flex", gap: 16, alignItems: "flex-start" }}>
+      <div style={{ maxWidth: 1280, margin: "0 auto", padding: "16px 16px", display: "flex", gap: 16, alignItems: "flex-start" }}>
         {/* SIDEBAR */}
-        <aside style={{ width: 220, flexShrink: 0, background: "#fff", border: "1px solid #D4DBE6", borderRadius: 6, overflow: "hidden", position: "sticky", top: 16, maxHeight: "calc(100vh - 32px)", display: "flex", flexDirection: "column" }}>
+        <aside className="catalog-filters" style={{ width: 260, flexShrink: 0, background: "var(--surface)", border: "1px solid var(--border)", borderRadius: 6, overflow: "hidden", position: "sticky", top: 16, maxHeight: "calc(100vh - 32px)", display: "flex", flexDirection: "column" }}>
           <button onClick={() => setShowFilters(!showFilters)}
-            style={{ display: "flex", alignItems: "center", justifyContent: "space-between", width: "100%", padding: "12px 14px", border: "none", background: "transparent", cursor: "pointer", fontSize: 13, fontWeight: 700, color: "#1A1A1A" }}>
+            style={{ display: "flex", alignItems: "center", justifyContent: "space-between", width: "100%", padding: "12px 14px", border: "none", background: "transparent", cursor: "pointer", fontSize: 15, fontWeight: 600, color: "var(--text)" }}>
             <span style={{ display: "flex", alignItems: "center", gap: 6 }}><SlidersHorizontal size={14} /> Фильтры</span>
             <ChevronDown size={14} style={{ transform: showFilters ? "rotate(180deg)" : "none", transition: "transform .2s" }} />
           </button>
@@ -487,50 +487,44 @@ function Main({ user: initialUser, onLogout }: { user: User; onLogout: () => voi
             <div style={{ padding: "0 14px 14px", overflowY: "auto", flex: 1 }}>
               {/* Sort */}
               <div style={{ marginBottom: 14 }}>
-                <div style={{ fontSize: 11, fontWeight: 600, color: "#8C8C8C", textTransform: "uppercase", marginBottom: 6, display: "flex", alignItems: "center", gap: 4 }}><ArrowUpDown size={11} /> Сортировка</div>
-                {SORT_OPTIONS.map(o => (
-                  <button key={o.value} onClick={() => selectSort(o.value)}
-                    style={{ display: "block", width: "100%", textAlign: "left", padding: "5px 10px", border: "none", borderRadius: 3, cursor: "pointer", fontSize: 13, marginBottom: 2,
-                      background: sortBy === o.value ? "#264B82" : "transparent",
-                      color: sortBy === o.value ? "#fff" : "#1A1A1A" }}
-                    onMouseEnter={e => { if (sortBy !== o.value) e.currentTarget.style.background = "#E7EEF7"; }}
-                    onMouseLeave={e => { if (sortBy !== o.value) e.currentTarget.style.background = "transparent"; }}
-                  >{o.label}</button>
-                ))}
+                <div style={{ fontSize: 13, fontWeight: 600, color: "var(--muted)", textTransform: "none", marginBottom: 6, display: "flex", alignItems: "center", gap: 4 }}><ArrowUpDown size={11} /> Сортировка</div>
+                <select className="kit-dropdown" aria-label="Сортировка" value={sortBy} onChange={e => selectSort(e.target.value)}>
+                  {SORT_OPTIONS.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
+                </select>
               </div>
               {/* Categories */}
               <div>
                 <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 6 }}>
-                  <div style={{ fontSize: 11, fontWeight: 600, color: "#8C8C8C", textTransform: "uppercase" }}>Категория</div>
+                  <div style={{ fontSize: 13, fontWeight: 600, color: "var(--muted)", textTransform: "none" }}>Категория</div>
                   <button onClick={() => setOnlyInteresting(v => !v)}
-                    style={{ padding: "2px 8px", borderRadius: 20, fontSize: 10, border: "1px solid", cursor: "pointer",
-                      borderColor: onlyInteresting ? "#264B82" : "#D4DBE6",
-                      background: onlyInteresting ? "#264B82" : "#fff",
-                      color: onlyInteresting ? "#fff" : "#8C8C8C" }}>
+                    style={{ padding: "2px 8px", borderRadius: 20, fontSize: 12, border: "1px solid", cursor: "pointer",
+                      borderColor: onlyInteresting ? "var(--accent)" : "var(--border)",
+                      background: onlyInteresting ? "var(--accent)" : "var(--surface)",
+                      color: onlyInteresting ? "var(--surface)" : "var(--muted)" }}>
                     {onlyInteresting ? "Мои" : "Все"}
                   </button>
                 </div>
                 <button onClick={() => selectCategory(null)}
-                  style={{ display: "flex", justifyContent: "space-between", width: "100%", textAlign: "left", padding: "5px 10px", border: "none", borderRadius: 3, cursor: "pointer", fontSize: 13, marginBottom: 2,
-                    background: category === null ? "#264B82" : "transparent",
-                    color: category === null ? "#fff" : "#1A1A1A" }}
-                  onMouseEnter={e => { if (category !== null) e.currentTarget.style.background = "#E7EEF7"; }}
+                  style={{ display: "flex", justifyContent: "space-between", width: "100%", textAlign: "left", padding: "5px 10px", border: "none", borderRadius: 3, cursor: "pointer", fontSize: 15, marginBottom: 2,
+                    background: category === null ? "var(--accent)" : "transparent",
+                    color: category === null ? "var(--surface)" : "var(--text)" }}
+                  onMouseEnter={e => { if (category !== null) e.currentTarget.style.background = "var(--canvas)"; }}
                   onMouseLeave={e => { if (category !== null) e.currentTarget.style.background = "transparent"; }}
                 >Все категории</button>
                 {visibleFacets.map(f => (
                   <button key={f.name} onClick={() => selectCategory(f.name)}
-                    style={{ display: "flex", justifyContent: "space-between", width: "100%", textAlign: "left", padding: "5px 10px", border: "none", borderRadius: 3, cursor: "pointer", fontSize: 12, marginBottom: 1,
-                      background: category === f.name ? "#264B82" : "transparent",
-                      color: category === f.name ? "#fff" : "#1A1A1A" }}
-                    onMouseEnter={e => { if (category !== f.name) e.currentTarget.style.background = "#E7EEF7"; }}
+                    style={{ display: "flex", justifyContent: "space-between", width: "100%", textAlign: "left", padding: "5px 10px", border: "none", borderRadius: 3, cursor: "pointer", fontSize: 14, marginBottom: 1,
+                      background: category === f.name ? "var(--accent)" : "transparent",
+                      color: category === f.name ? "var(--surface)" : "var(--text)" }}
+                    onMouseEnter={e => { if (category !== f.name) e.currentTarget.style.background = "var(--canvas)"; }}
                     onMouseLeave={e => { if (category !== f.name) e.currentTarget.style.background = "transparent"; }}
                   >
                     <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{f.name}</span>
-                    <span style={{ fontSize: 11, color: category === f.name ? "rgba(255,255,255,.7)" : "#8C8C8C", flexShrink: 0, marginLeft: 4 }}>{f.count}</span>
+                    <span style={{ fontSize: 13, color: category === f.name ? "rgba(255,255,255,.7)" : "var(--muted)", flexShrink: 0, marginLeft: 4 }}>{f.count}</span>
                   </button>
                 ))}
                 {onlyInteresting && userCategoryFacets.length === 0 && (
-                  <p style={{ fontSize: 11, color: "#8C8C8C", fontStyle: "italic", margin: "6px 0 0" }}>Нет данных о предпочтениях — нажмите «Все»</p>
+                  <p style={{ fontSize: 13, color: "var(--muted)", fontStyle: "normal", margin: "6px 0 0" }}>Нет данных о предпочтениях — нажмите «Все»</p>
                 )}
               </div>
             </div>
@@ -538,9 +532,9 @@ function Main({ user: initialUser, onLogout }: { user: User; onLogout: () => voi
         </aside>
 
         {/* RESULTS AREA */}
-        <main style={{ flex: 1, minWidth: 0 }}>
+        <main className="catalog-results" style={{ flex: 1, minWidth: 0 }}>
           {loading && (
-            <div style={{ display: "flex", alignItems: "center", gap: 8, padding: 40, justifyContent: "center", color: "#8C8C8C" }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 8, padding: 40, justifyContent: "center", color: "var(--muted)" }}>
               <Loader2 size={20} style={{ animation: "spin 1s linear infinite" }} /> Поиск...
             </div>
           )}
@@ -548,27 +542,27 @@ function Main({ user: initialUser, onLogout }: { user: User; onLogout: () => voi
           {!loading && response && response.results.length > 0 && (
             <>
               <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8 }}>
-                <p style={{ fontSize: 13, color: "#8C8C8C", margin: 0 }}>
+                <p style={{ fontSize: 15, color: "var(--muted)", margin: 0 }}>
                   {query === "*" && category
-                    ? <>Товары категории «<strong style={{ color: "#1A1A1A" }}>{category}</strong>»</>
-                    : <>Результаты по запросу «<strong style={{ color: "#1A1A1A" }}>{response.query}</strong>»
+                    ? <>Товары категории «<strong style={{ color: "var(--text)" }}>{category}</strong>»</>
+                    : <>Результаты по запросу «<strong style={{ color: "var(--text)" }}>{response.query}</strong>»
                       {category && <span> в категории «{category}»</span>}</>
                   }
                 </p>
               </div>
               {/* Collective learning + rewrites insight */}
               {(response.applied_rewrites?.length || response.collective_insights?.length) ? (
-                <div style={{ marginBottom: 12, padding: "8px 12px", background: "#F0F7FF", border: "1px solid #D4E4F7", borderRadius: 6, fontSize: 11, lineHeight: 1.7, color: "#3A5A8C" }}>
+                <div style={{ marginBottom: 12, padding: "8px 12px", background: "var(--canvas)", border: "1px solid var(--border)", borderRadius: 6, fontSize: 13, lineHeight: 1.7, color: "var(--text-detail)" }}>
                   {response.applied_rewrites && response.applied_rewrites.length > 0 && (
                     <div><strong>Обработка запроса:</strong> {response.applied_rewrites.map((r, i) => (
-                      <span key={i} style={{ display: "inline-block", background: "#E0EDFF", padding: "1px 6px", borderRadius: 3, marginLeft: 4, fontSize: 10 }}>{r}</span>
+                      <span key={i} style={{ display: "inline-block", background: "var(--neutral-soft)", padding: "1px 6px", borderRadius: 3, marginLeft: 4, fontSize: 12 }}>{r}</span>
                     ))}</div>
                   )}
                   {response.collective_insights && response.collective_insights.length > 0 && (
                     <div style={{ marginTop: 4 }}>
                       <strong>Обучение на пользователях:</strong>{" "}
                       {response.collective_insights.map((ins, i) => (
-                        <span key={i} style={{ display: "inline-block", background: "#E6F7F1", color: "#0D9B68", padding: "1px 6px", borderRadius: 3, marginLeft: 4, fontSize: 10, fontWeight: 600 }}>
+                        <span key={i} style={{ display: "inline-block", background: "var(--success-soft)", color: "var(--success)", padding: "1px 6px", borderRadius: 3, marginLeft: 4, fontSize: 12, fontWeight: 600 }}>
                           {ins.user_count} чел. выбрали «{ins.product_name}»
                         </span>
                       ))}
@@ -580,44 +574,44 @@ function Main({ user: initialUser, onLogout }: { user: User; onLogout: () => voi
                 {response.results.map((item, idx) => {
                   const delta = rankDeltas[item.id];
                   return (
-                    <div key={item.id} style={{ background: "#fff", border: "1px solid #D4DBE6", borderRadius: 6, display: "flex", flexDirection: "column" }}>
-                      <div style={{ padding: "14px 16px", flex: 1 }}>
+                    <div className="result-card" key={item.id} style={{ background: "var(--surface)", border: "1px solid var(--border)", borderRadius: 6, display: "flex", flexDirection: "column" }}>
+                      <div style={{ padding: "20px 24px", flex: 1 }}>
                         <div style={{ display: "flex", justifyContent: "space-between", gap: 8 }}>
                           <div style={{ flex: 1 }}>
                             <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 2, flexWrap: "wrap" }}>
-                              <span style={{ fontSize: 11, fontWeight: 700, color: "#264B82", background: "#E7EEF7", borderRadius: 3, padding: "1px 6px", fontFamily: "monospace" }}>#{offset + idx + 1}</span>
+                              <span style={{ fontSize: 13, fontWeight: 600, color: "var(--accent)", background: "var(--canvas)", borderRadius: 3, padding: "1px 6px", fontFamily: "monospace" }}>#{offset + idx + 1}</span>
                               {delta !== undefined && delta !== 0 && (
                                 <span style={{
                                   display: "inline-flex", alignItems: "center", gap: 2,
-                                  color: delta > 0 ? "#0D9B68" : "#DB2B21",
-                                  fontSize: 11, fontWeight: 700, padding: "1px 6px",
-                                  background: delta > 0 ? "#E6F7F1" : "#FDECEA",
+                                  color: delta > 0 ? "var(--success)" : "var(--danger)",
+                                  fontSize: 13, fontWeight: 600, padding: "1px 6px",
+                                  background: delta > 0 ? "var(--success-soft)" : "var(--danger-soft)",
                                   borderRadius: 4,
                                 }}>
                                   {delta > 0 ? "↑" : "↓"}{Math.abs(delta)}
                                 </span>
                               )}
-                              <h3 onClick={() => { trackAction(item.id, "click", item.category ?? undefined); setModalItem(item); }}
-                                style={{ fontSize: 14, fontWeight: 600, color: "#1A1A1A", margin: 0, cursor: "pointer", lineHeight: 1.35 }}
-                                onMouseEnter={e => (e.currentTarget.style.color = "#264B82")}
-                                onMouseLeave={e => (e.currentTarget.style.color = "#1A1A1A")}
-                              >{item.name}</h3>
+                              <h3><button className="product-title" onClick={() => { trackAction(item.id, "click", item.category ?? undefined); setModalItem(item); }}
+                                style={{ fontSize: 16, fontWeight: 600, color: "var(--text)", margin: 0, cursor: "pointer", lineHeight: 1.35 }}
+                                onMouseEnter={e => (e.currentTarget.style.color = "var(--accent)")}
+                                onMouseLeave={e => (e.currentTarget.style.color = "var(--text)")}
+                              >{item.name}</button></h3>
                             </div>
-                            {item.category && <p style={{ fontSize: 12, color: "#8C8C8C", margin: "2px 0 0" }}>{item.category}</p>}
+                            {item.category && <p style={{ fontSize: 14, color: "var(--muted)", margin: "2px 0 0" }}>{item.category}</p>}
                             {item.snippet && item.snippet !== item.name && (
-                              <p style={{ fontSize: 11, color: "#7F8792", margin: "4px 0 0", fontStyle: "italic" }}
-                                dangerouslySetInnerHTML={{ __html: item.snippet.replace(/<<(.*?)>>/g, '<mark style="background:#FFF3CD;padding:0 2px;border-radius:2px">$1</mark>') }}
+                              <p style={{ fontSize: 13, color: "var(--muted)", margin: "4px 0 0", fontStyle: "normal" }}
+                                dangerouslySetInnerHTML={{ __html: item.snippet.replace(/<<(.*?)>>/g, '<mark style="background:var(--highlight);padding:0 2px;border-radius:2px">$1</mark>') }}
                               />
                             )}
                           </div>
                           <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-end", gap: 4, flexShrink: 0 }}>
-                            <span style={{ fontSize: 10, fontFamily: "monospace", color: "#8C8C8C", background: "#E7EEF7", borderRadius: 3, padding: "2px 6px" }}>ID {item.id}</span>
-                            <span style={{ fontSize: 10, fontFamily: "monospace", color: "#264B82" }}>score: {item.score.toFixed(3)}</span>
+                            <span style={{ fontSize: 12, fontFamily: "monospace", color: "var(--muted)", background: "var(--canvas)", borderRadius: 3, padding: "2px 6px" }}>ID {item.id}</span>
+                            <span style={{ fontSize: 12, fontFamily: "monospace", color: "var(--accent)" }}>Оценка: {item.score.toFixed(3)}</span>
                             {item.avg_price != null && (
-                              <span style={{ fontSize: 11, color: "#0D9B68", fontWeight: 600 }}>
+                              <span style={{ fontSize: 13, color: "var(--success)", fontWeight: 600 }}>
                                 ~{item.avg_price.toLocaleString("ru-RU")} ₽
                                 {item.price_trend === "down" && <span title="Цена снижается" style={{ marginLeft: 3 }}>↓</span>}
-                                {item.price_trend === "up" && <span title="Цена растёт" style={{ marginLeft: 3, color: "#F67319" }}>↑</span>}
+                                {item.price_trend === "up" && <span title="Цена растёт" style={{ marginLeft: 3, color: "var(--warning)" }}>↑</span>}
                               </span>
                             )}
                           </div>
@@ -625,35 +619,35 @@ function Main({ user: initialUser, onLogout }: { user: User; onLogout: () => voi
                         {item.attributes && Object.keys(item.attributes).length > 0 && (
                           <div style={{ display: "flex", flexWrap: "wrap", gap: "4px 12px", marginTop: 6 }}>
                             {Object.entries(item.attributes).slice(0, 4).map(([k, v]) => (
-                              <span key={k} style={{ fontSize: 11, color: "#8C8C8C" }}><strong style={{ color: "#7F8792" }}>{k}:</strong> {String(v)}</span>
+                              <span key={k} style={{ fontSize: 13, color: "var(--muted)" }}><strong style={{ color: "var(--muted)" }}>{k}:</strong> {String(v)}</span>
                             ))}
                           </div>
                         )}
                         {item.explanations.length > 0 && (
                           <div style={{ display: "flex", flexWrap: "wrap", gap: 4, marginTop: 8 }}>
                             {item.explanations.map((e, i) => (
-                              <span key={i} style={{ fontSize: 10, fontWeight: 600, padding: "2px 8px", borderRadius: 3, ...(BADGE_STYLES[e.factor] || { background: "#E7EEF7", color: "#8C8C8C" }) }}>{e.reason}</span>
+                              <span key={i} style={{ fontSize: 12, fontWeight: 600, padding: "2px 8px", borderRadius: 3, ...(BADGE_STYLES[e.factor] || { background: "var(--canvas)", color: "var(--muted)" }) }}>{e.reason}</span>
                             ))}
                           </div>
                         )}
                       </div>
-                      <div style={{ padding: "6px 16px", borderTop: "1px solid #E7EEF7", display: "flex", alignItems: "center", gap: 4 }}>
-                        <Btn onClick={() => { trackAction(item.id, "click", item.category ?? undefined); setModalItem(item); }} color="#264B82"><ChevronRight size={12} /> Подробнее</Btn>
-                        <Btn onClick={() => setThinkingItem({ item, position: offset + idx + 1 })} color="#7F8792"><Brain size={12} /> Почему здесь?</Btn>
+                      <div style={{ padding: "6px 16px", borderTop: "1px solid var(--canvas)", display: "flex", alignItems: "center", gap: 4 }}>
+                        <Btn onClick={() => { trackAction(item.id, "click", item.category ?? undefined); setModalItem(item); }} color="var(--accent)"><ChevronRight size={12} /> Подробнее</Btn>
+                        <Btn onClick={() => setThinkingItem({ item, position: offset + idx + 1 })} color="var(--muted)"><Brain size={12} /> Почему здесь?</Btn>
                         <div style={{ display: "flex", gap: 2, marginLeft: "auto" }}>
                           <button
                             onClick={() => handleLike(item.id, item.category ?? undefined)}
                             title="Подходящий товар — поднять выше"
-                            style={{ background: likedIds.has(item.id) ? "#E8F8F2" : "none", border: "none", color: likedIds.has(item.id) ? "#0D9B68" : "#C9D1DF", fontSize: 12, cursor: "pointer", padding: "4px 8px", borderRadius: 4 }}
-                            onMouseEnter={e => { if (!likedIds.has(item.id)) { e.currentTarget.style.color = "#0D9B68"; e.currentTarget.style.background = "#E8F8F2"; } }}
-                            onMouseLeave={e => { if (!likedIds.has(item.id)) { e.currentTarget.style.color = "#C9D1DF"; e.currentTarget.style.background = "none"; } }}
+                            style={{ background: likedIds.has(item.id) ? "var(--success-panel)" : "none", border: "none", color: likedIds.has(item.id) ? "var(--success)" : "var(--muted)", fontSize: 14, cursor: "pointer", padding: "4px 8px", borderRadius: 4 }}
+                            onMouseEnter={e => { if (!likedIds.has(item.id)) { e.currentTarget.style.color = "var(--success)"; e.currentTarget.style.background = "var(--success-panel)"; } }}
+                            onMouseLeave={e => { if (!likedIds.has(item.id)) { e.currentTarget.style.color = "var(--muted)"; e.currentTarget.style.background = "none"; } }}
                           ><ThumbsUp size={12} /></button>
                           <button
                             onClick={() => handleDislike(item.id, item.category ?? undefined)}
                             title="Не подходит — опустить ниже"
-                            style={{ background: dislikedIds.has(item.id) ? "#FDECEA" : "none", border: "none", color: dislikedIds.has(item.id) ? "#DB2B21" : "#C9D1DF", fontSize: 12, cursor: "pointer", padding: "4px 8px", borderRadius: 4 }}
-                            onMouseEnter={e => { if (!dislikedIds.has(item.id)) { e.currentTarget.style.color = "#DB2B21"; e.currentTarget.style.background = "#FDECEA"; } }}
-                            onMouseLeave={e => { if (!dislikedIds.has(item.id)) { e.currentTarget.style.color = "#C9D1DF"; e.currentTarget.style.background = "none"; } }}
+                            style={{ background: dislikedIds.has(item.id) ? "var(--danger-soft)" : "none", border: "none", color: dislikedIds.has(item.id) ? "var(--danger)" : "var(--muted)", fontSize: 14, cursor: "pointer", padding: "4px 8px", borderRadius: 4 }}
+                            onMouseEnter={e => { if (!dislikedIds.has(item.id)) { e.currentTarget.style.color = "var(--danger)"; e.currentTarget.style.background = "var(--danger-soft)"; } }}
+                            onMouseLeave={e => { if (!dislikedIds.has(item.id)) { e.currentTarget.style.color = "var(--muted)"; e.currentTarget.style.background = "none"; } }}
                           ><ThumbsDown size={12} /></button>
                         </div>
                       </div>
@@ -664,7 +658,7 @@ function Main({ user: initialUser, onLogout }: { user: User; onLogout: () => voi
               {response.total > PAGE_SIZE && (
                 <div style={{ display: "flex", justifyContent: "center", gap: 8, marginTop: 16 }}>
                   <PgBtn disabled={offset === 0} onClick={() => doSearch(query, Math.max(0, offset - PAGE_SIZE))}>Назад</PgBtn>
-                  <span style={{ padding: "8px 12px", fontSize: 13, color: "#8C8C8C" }}>{Math.floor(offset / PAGE_SIZE) + 1} / {Math.ceil(response.total / PAGE_SIZE)}</span>
+                  <span style={{ padding: "8px 12px", fontSize: 15, color: "var(--muted)" }}>{Math.floor(offset / PAGE_SIZE) + 1} / {Math.ceil(response.total / PAGE_SIZE)}</span>
                   <PgBtn disabled={offset + PAGE_SIZE >= response.total} onClick={() => doSearch(query, offset + PAGE_SIZE)}>Далее</PgBtn>
                 </div>
               )}
@@ -672,21 +666,21 @@ function Main({ user: initialUser, onLogout }: { user: User; onLogout: () => voi
           )}
 
           {!loading && response && response.total === -1 && (
-            <EmptyBox icon={<PackageSearch size={48} style={{ color: "#F67319" }} />}
+            <EmptyBox icon={<PackageSearch size={48} style={{ color: "var(--warning)" }} />}
               title="Сервер загружается, подождите 30 секунд"
               subtitle="Система прогревает поисковые индексы. Попробуйте повторить поиск."
               onPick={(q) => { setInputVal(q); doSearch(q); }} />
           )}
 
           {!loading && response && response.total === 0 && response.results.length === 0 && (
-            <EmptyBox icon={<PackageSearch size={48} style={{ color: "#D4DBE6" }} />}
+            <EmptyBox icon={<PackageSearch size={48} style={{ color: "var(--border)" }} />}
               title={query === "*" && category ? `В категории «${category}» ничего не найдено` : `По запросу «${query}» ничего не найдено`}
               subtitle="Попробуйте другой запрос или снимите фильтр категории"
               onPick={(q) => { setInputVal(q); doSearch(q); }} />
           )}
 
           {!loading && !response && (
-            <EmptyBox icon={<Search size={48} style={{ color: "#D4DBE6" }} />}
+            <EmptyBox icon={<Search size={48} style={{ color: "var(--border)" }} />}
               title="Начните вводить название товара"
               subtitle="Система учтёт ваш профиль и историю закупок для персональной выдачи"
               onPick={(q) => { setInputVal(q); doSearch(q); }} />
@@ -723,7 +717,7 @@ function Main({ user: initialUser, onLogout }: { user: User; onLogout: () => voi
 
       {/* TOAST */}
       {toast && !learningFeedback && (
-        <div style={{ position: "fixed", bottom: 24, left: "50%", transform: "translateX(-50%)", background: "#1A1A1A", color: "#fff", padding: "10px 20px", borderRadius: 6, fontSize: 13, zIndex: 9999, boxShadow: "0 4px 16px rgba(0,0,0,.25)", pointerEvents: "none" }}>
+        <div style={{ position: "fixed", bottom: 24, left: "50%", transform: "translateX(-50%)", background: "var(--text)", color: "var(--surface)", padding: "10px 20px", borderRadius: 6, fontSize: 15, zIndex: 9999, boxShadow: "0 4px 16px rgba(0,0,0,.25)", pointerEvents: "none" }}>
           {toast}
         </div>
       )}
@@ -731,51 +725,51 @@ function Main({ user: initialUser, onLogout }: { user: User; onLogout: () => voi
       {/* Learning feedback card */}
       {learningFeedback && (
         <div style={{
-          position: "fixed", bottom: 24, right: 24, width: 380, background: "#fff",
+          position: "fixed", bottom: 24, right: 24, width: 380, background: "var(--surface)",
           borderRadius: 10, boxShadow: "0 8px 32px rgba(0,0,0,.2)", zIndex: 9999,
-          border: `2px solid ${learningFeedback.action === "like" ? "#0D9B68" : "#DB2B21"}`,
+          border: `2px solid ${learningFeedback.action === "like" ? "var(--success)" : "var(--danger)"}`,
           overflow: "hidden",
         }}>
           <div style={{
             padding: "10px 14px",
-            background: learningFeedback.action === "like" ? "#E6F7F1" : "#FDECEA",
+            background: learningFeedback.action === "like" ? "var(--success-soft)" : "var(--danger-soft)",
             display: "flex", justifyContent: "space-between", alignItems: "center",
           }}>
             <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
-              <Brain size={14} color={learningFeedback.action === "like" ? "#0D9B68" : "#DB2B21"} />
-              <span style={{ fontSize: 12, fontWeight: 700, color: learningFeedback.action === "like" ? "#0D9B68" : "#DB2B21" }}>
+              <Brain size={14} color={learningFeedback.action === "like" ? "var(--success)" : "var(--danger)"} />
+              <span style={{ fontSize: 14, fontWeight: 600, color: learningFeedback.action === "like" ? "var(--success)" : "var(--danger)" }}>
                 Нейросеть дообучилась
               </span>
             </div>
-            <button onClick={() => setLearningFeedback(null)} style={{ background: "none", border: "none", cursor: "pointer", padding: 2, color: "#8C8C8C" }}><X size={12} /></button>
+            <button onClick={() => setLearningFeedback(null)} style={{ background: "none", border: "none", cursor: "pointer", padding: 2, color: "var(--muted)" }}><X size={12} /></button>
           </div>
-          <div style={{ padding: "10px 14px", fontSize: 12, lineHeight: 1.7 }}>
-            <div style={{ marginBottom: 8, color: "#1A1A1A" }}>
+          <div style={{ padding: "10px 14px", fontSize: 14, lineHeight: 1.7 }}>
+            <div style={{ marginBottom: 8, color: "var(--text)" }}>
               Вы {learningFeedback.action === "like" ? "оценили положительно" : "отклонили"}{" "}
               <b>«{learningFeedback.itemName}»</b>
               {learningFeedback.query && learningFeedback.query !== "*" && <> по запросу «{learningFeedback.query}»</>}
             </div>
-            <div style={{ fontSize: 11, fontWeight: 700, color: "#8C8C8C", textTransform: "uppercase", marginBottom: 4 }}>Что узнала нейросеть:</div>
+            <div style={{ fontSize: 13, fontWeight: 600, color: "var(--muted)", textTransform: "none", marginBottom: 4 }}>Что узнала нейросеть:</div>
             {learningFeedback.lessons.map((l, i) => (
-              <div key={i} style={{ display: "flex", gap: 6, fontSize: 11, color: "#3A3A3A", padding: "2px 0" }}>
-                <span style={{ color: learningFeedback.action === "like" ? "#0D9B68" : "#DB2B21", fontWeight: 700, flexShrink: 0 }}>
+              <div key={i} style={{ display: "flex", gap: 6, fontSize: 13, color: "var(--text-strong)", padding: "2px 0" }}>
+                <span style={{ color: learningFeedback.action === "like" ? "var(--success)" : "var(--danger)", fontWeight: 600, flexShrink: 0 }}>
                   {learningFeedback.action === "like" ? "+" : "-"}
                 </span>
                 {l}
               </div>
             ))}
             {learningFeedback.positionAfter != null && learningFeedback.positionAfter !== learningFeedback.positionBefore && (
-              <div style={{ marginTop: 8, padding: "6px 10px", background: "#F8FAFE", borderRadius: 4, fontSize: 11 }}>
+              <div style={{ marginTop: 8, padding: "6px 10px", background: "var(--surface-soft)", borderRadius: 4, fontSize: 13 }}>
                 <b>Позиция товара:</b>{" "}
                 #{learningFeedback.positionBefore} → #{learningFeedback.positionAfter}{" "}
-                <span style={{ color: learningFeedback.positionAfter < learningFeedback.positionBefore ? "#0D9B68" : "#DB2B21", fontWeight: 700 }}>
+                <span style={{ color: learningFeedback.positionAfter < learningFeedback.positionBefore ? "var(--success)" : "var(--danger)", fontWeight: 600 }}>
                   ({learningFeedback.positionAfter < learningFeedback.positionBefore ? "поднялся" : "опустился"} на {Math.abs(learningFeedback.positionAfter - learningFeedback.positionBefore)})
                 </span>
               </div>
             )}
           </div>
-          <div style={{ padding: "8px 14px", borderTop: "1px solid #E7EEF7", fontSize: 10, color: "#8C8C8C", background: "#F8FAFE" }}>
-            Всего сигналов обучения в этой сессии: <b style={{ color: "#264B82" }}>{learningLog.length}</b>
+          <div style={{ padding: "8px 14px", borderTop: "1px solid var(--canvas)", fontSize: 12, color: "var(--muted)", background: "var(--surface-soft)" }}>
+            Всего сигналов обучения в этой сессии: <b style={{ color: "var(--accent)" }}>{learningLog.length}</b>
           </div>
         </div>
       )}
@@ -789,8 +783,8 @@ function Main({ user: initialUser, onLogout }: { user: User; onLogout: () => voi
 function Btn({ onClick, color, children }: { onClick: () => void; color: string; children: ReactNode }) {
   return (
     <button onClick={onClick}
-      style={{ background: "none", border: "none", color, fontSize: 12, fontWeight: 600, cursor: "pointer", padding: "4px 8px", borderRadius: 4, display: "flex", alignItems: "center", gap: 4 }}
-      onMouseEnter={e => (e.currentTarget.style.background = "#E7EEF7")}
+      style={{ background: "none", border: "none", color, fontSize: 14, fontWeight: 600, cursor: "pointer", padding: "4px 8px", borderRadius: 4, display: "flex", alignItems: "center", gap: 4 }}
+      onMouseEnter={e => (e.currentTarget.style.background = "var(--canvas)")}
       onMouseLeave={e => (e.currentTarget.style.background = "none")}
     >{children}</button>
   );
@@ -799,7 +793,7 @@ function Btn({ onClick, color, children }: { onClick: () => void; color: string;
 function PgBtn({ disabled, onClick, children }: { disabled: boolean; onClick: () => void; children: ReactNode }) {
   return (
     <button disabled={disabled} onClick={onClick}
-      style={{ padding: "8px 16px", border: "1px solid #D4DBE6", borderRadius: 4, background: "#fff", cursor: disabled ? "default" : "pointer", opacity: disabled ? 0.4 : 1, fontSize: 13 }}
+      style={{ padding: "8px 16px", border: "1px solid var(--border)", borderRadius: 4, background: "var(--surface)", cursor: disabled ? "default" : "pointer", opacity: disabled ? 0.4 : 1, fontSize: 15 }}
     >{children}</button>
   );
 }
@@ -808,14 +802,14 @@ function EmptyBox({ icon, title, subtitle, onPick }: { icon: ReactNode; title: s
   return (
     <div style={{ textAlign: "center", padding: "60px 20px" }}>
       <div style={{ marginBottom: 12 }}>{icon}</div>
-      <p style={{ fontSize: 16, fontWeight: 600, color: "#1A1A1A" }}>{title}</p>
-      <p style={{ fontSize: 13, color: "#8C8C8C", marginTop: 4, marginBottom: 16 }}>{subtitle}</p>
+      <p style={{ fontSize: 18, fontWeight: 600, color: "var(--text)" }}>{title}</p>
+      <p style={{ fontSize: 15, color: "var(--muted)", marginTop: 4, marginBottom: 16 }}>{subtitle}</p>
       <div style={{ display: "flex", flexWrap: "wrap", justifyContent: "center", gap: 8 }}>
         {POPULAR.map(q => (
           <button key={q} onClick={() => onPick(q)}
-            style={{ padding: "6px 14px", border: "1px solid #D4DBE6", borderRadius: 4, background: "#fff", cursor: "pointer", fontSize: 13 }}
-            onMouseEnter={e => { e.currentTarget.style.background = "#264B82"; e.currentTarget.style.color = "#fff"; e.currentTarget.style.borderColor = "#264B82"; }}
-            onMouseLeave={e => { e.currentTarget.style.background = "#fff"; e.currentTarget.style.color = "#1A1A1A"; e.currentTarget.style.borderColor = "#D4DBE6"; }}
+            style={{ padding: "6px 14px", border: "1px solid var(--border)", borderRadius: 4, background: "var(--surface)", cursor: "pointer", fontSize: 15 }}
+            onMouseEnter={e => { e.currentTarget.style.background = "var(--accent)"; e.currentTarget.style.color = "var(--surface)"; e.currentTarget.style.borderColor = "var(--accent)"; }}
+            onMouseLeave={e => { e.currentTarget.style.background = "var(--surface)"; e.currentTarget.style.color = "var(--text)"; e.currentTarget.style.borderColor = "var(--border)"; }}
           >{q}</button>
         ))}
       </div>
@@ -831,6 +825,7 @@ function DetailModal({ item, onClose, onLike, onDislike, likedIds, dislikedIds, 
   likedIds: Set<number>; dislikedIds: Set<number>;
   trackAction: (id: number, a: string) => void;
 }) {
+  const dialogRef = usePortalDialog(onClose);
   const openedAt = useRef(Date.now());
   const isLiked = likedIds.has(item.id);
   const isDisliked = dislikedIds.has(item.id);
@@ -848,31 +843,31 @@ function DetailModal({ item, onClose, onLike, onDislike, likedIds, dislikedIds, 
   })();
 
   return (
-    <div onClick={e => { if (e.target === e.currentTarget) handleClose(); }}
+    <div className="kit-modal-backdrop" onClick={e => { if (e.target === e.currentTarget) handleClose(); }}
       style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,.4)", display: "flex", alignItems: "center", justifyContent: "center", padding: 16, zIndex: 999 }}>
-      <div style={{ background: "#fff", borderRadius: 8, boxShadow: "0 8px 40px rgba(0,0,0,.2)", width: "100%", maxWidth: 520, maxHeight: "90vh", overflow: "auto" }}>
-        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", padding: 20, borderBottom: "1px solid #D4DBE6" }}>
+      <div className="kit-dialog" ref={dialogRef} role="dialog" aria-modal="true" aria-label={item.name} tabIndex={-1}>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", padding: 20, borderBottom: "1px solid var(--border)" }}>
           <div>
-            <h2 style={{ fontSize: 16, fontWeight: 700, color: "#1A1A1A", margin: 0 }}>{item.name}</h2>
-            {item.category && <p style={{ fontSize: 13, color: "#8C8C8C", margin: "4px 0 0" }}>{item.category}</p>}
+            <h2 style={{ fontSize: 18, fontWeight: 600, color: "var(--text)", margin: 0 }}>{item.name}</h2>
+            {item.category && <p style={{ fontSize: 15, color: "var(--muted)", margin: "4px 0 0" }}>{item.category}</p>}
           </div>
-          <button onClick={handleClose} style={{ background: "none", border: "none", cursor: "pointer", color: "#8C8C8C", padding: 4 }}><X size={18} /></button>
+          <button aria-label="Закрыть карточку" onClick={handleClose} style={{ background: "none", border: "none", cursor: "pointer", color: "var(--muted)", padding: 4 }}><X size={18} /></button>
         </div>
         <div style={{ padding: 20 }}>
           <div style={{ display: "flex", gap: 8, marginBottom: 16 }}>
-            <span style={{ fontSize: 11, fontFamily: "monospace", color: "#8C8C8C", background: "#E7EEF7", borderRadius: 3, padding: "3px 8px" }}>ID: {item.id}</span>
-            <span style={{ fontSize: 11, fontFamily: "monospace", color: "#264B82", background: "#E7EEF7", borderRadius: 3, padding: "3px 8px" }}>Score: {item.score.toFixed(4)}</span>
+            <span style={{ fontSize: 13, fontFamily: "monospace", color: "var(--muted)", background: "var(--canvas)", borderRadius: 3, padding: "3px 8px" }}>ID: {item.id}</span>
+            <span style={{ fontSize: 13, fontFamily: "monospace", color: "var(--accent)", background: "var(--canvas)", borderRadius: 3, padding: "3px 8px" }}>Оценка: {item.score.toFixed(4)}</span>
             {item.avg_price != null && (
-              <span style={{ fontSize: 11, color: "#0D9B68", background: "#E6F7F1", borderRadius: 3, padding: "3px 8px", fontWeight: 600 }}>~{item.avg_price.toLocaleString("ru-RU")} ₽</span>
+              <span style={{ fontSize: 13, color: "var(--success)", background: "var(--success-soft)", borderRadius: 3, padding: "3px 8px", fontWeight: 600 }}>~{item.avg_price.toLocaleString("ru-RU")} ₽</span>
             )}
           </div>
           {item.explanations.length > 0 && (
             <div style={{ marginBottom: 16 }}>
-              <p style={{ fontSize: 11, fontWeight: 700, color: "#8C8C8C", textTransform: "uppercase", marginBottom: 8 }}>Почему этот результат выше</p>
+              <p style={{ fontSize: 13, fontWeight: 600, color: "var(--muted)", textTransform: "none", marginBottom: 8 }}>Почему этот результат выше</p>
               {item.explanations.map((e, i) => (
-                <div key={i} style={{ fontSize: 13, color: "#1A1A1A", margin: "6px 0", paddingLeft: 12, borderLeft: "3px solid #264B82", display: "flex", justifyContent: "space-between" }}>
+                <div key={i} style={{ fontSize: 15, color: "var(--text)", margin: "6px 0", paddingLeft: 12, borderLeft: "3px solid var(--accent)", display: "flex", justifyContent: "space-between" }}>
                   <span>{e.reason}</span>
-                  <span style={{ fontSize: 11, color: "#8C8C8C", flexShrink: 0, marginLeft: 8 }}>
+                  <span style={{ fontSize: 13, color: "var(--muted)", flexShrink: 0, marginLeft: 8 }}>
                     {e.weight > 0 ? `+${e.weight.toFixed(2)}` : e.weight.toFixed(2)}
                   </span>
                 </div>
@@ -881,13 +876,13 @@ function DetailModal({ item, onClose, onLike, onDislike, likedIds, dislikedIds, 
           )}
           {Object.keys(attrs).length > 0 && (
             <div>
-              <p style={{ fontSize: 11, fontWeight: 700, color: "#8C8C8C", textTransform: "uppercase", marginBottom: 8 }}>Характеристики</p>
-              <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13 }}>
+              <p style={{ fontSize: 13, fontWeight: 600, color: "var(--muted)", textTransform: "none", marginBottom: 8 }}>Характеристики</p>
+              <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 15 }}>
                 <tbody>
                   {Object.entries(attrs).map(([k, v]) => (
-                    <tr key={k} style={{ borderBottom: "1px solid #E7EEF7" }}>
-                      <td style={{ padding: "5px 8px 5px 0", fontWeight: 500, color: "#1A1A1A", width: "45%", verticalAlign: "top" }}>{k}</td>
-                      <td style={{ padding: "5px 0", color: "#7F8792" }}>{v}</td>
+                    <tr key={k} style={{ borderBottom: "1px solid var(--canvas)" }}>
+                      <td style={{ padding: "5px 8px 5px 0", fontWeight: 500, color: "var(--text)", width: "45%", verticalAlign: "top" }}>{k}</td>
+                      <td style={{ padding: "5px 0", color: "var(--muted)" }}>{v}</td>
                     </tr>
                   ))}
                 </tbody>
@@ -895,15 +890,15 @@ function DetailModal({ item, onClose, onLike, onDislike, likedIds, dislikedIds, 
             </div>
           )}
         </div>
-        <div style={{ padding: "14px 20px", borderTop: "1px solid #D4DBE6", display: "flex", gap: 8 }}>
+        <div style={{ padding: "14px 20px", borderTop: "1px solid var(--border)", display: "flex", gap: 8 }}>
           <button onClick={() => onLike(item.id, item.category ?? undefined)}
-            style={{ padding: "8px 16px", border: `1px solid ${isLiked ? "#0D9B68" : "#D4DBE6"}`, borderRadius: 4, background: isLiked ? "#E6F7F1" : "#fff", cursor: "pointer", fontSize: 13, color: isLiked ? "#0D9B68" : "#1A1A1A", display: "flex", alignItems: "center", gap: 4, fontWeight: isLiked ? 600 : 400 }}
+            style={{ padding: "8px 16px", border: `1px solid ${isLiked ? "var(--success)" : "var(--border)"}`, borderRadius: 4, background: isLiked ? "var(--success-soft)" : "var(--surface)", cursor: "pointer", fontSize: 15, color: isLiked ? "var(--success)" : "var(--text)", display: "flex", alignItems: "center", gap: 4, fontWeight: isLiked ? 600 : 400 }}
           ><ThumbsUp size={14} /> {isLiked ? "Понравилось" : "Нравится"}</button>
           <button onClick={() => { onDislike(item.id, item.category ?? undefined); handleClose(); }}
-            style={{ padding: "8px 16px", border: `1px solid ${isDisliked ? "rgba(219,43,33,.4)" : "#D4DBE6"}`, borderRadius: 4, background: isDisliked ? "#FDECEA" : "#fff", cursor: "pointer", fontSize: 13, color: "#DB2B21", display: "flex", alignItems: "center", gap: 4 }}
+            style={{ padding: "8px 16px", border: `1px solid ${isDisliked ? "rgba(219,43,33,.4)" : "var(--border)"}`, borderRadius: 4, background: isDisliked ? "var(--danger-soft)" : "var(--surface)", cursor: "pointer", fontSize: 15, color: "var(--danger)", display: "flex", alignItems: "center", gap: 4 }}
           ><ThumbsDown size={14} /> Не подходит</button>
           <button onClick={() => { trackAction(item.id, "hide"); handleClose(); }}
-            style={{ marginLeft: "auto", padding: "8px 16px", border: "1px solid rgba(219,43,33,.2)", borderRadius: 4, background: "#fff", cursor: "pointer", fontSize: 13, color: "#DB2B21", display: "flex", alignItems: "center", gap: 4 }}
+            style={{ marginLeft: "auto", padding: "8px 16px", border: "1px solid rgba(219,43,33,.2)", borderRadius: 4, background: "var(--surface)", cursor: "pointer", fontSize: 15, color: "var(--danger)", display: "flex", alignItems: "center", gap: 4 }}
           ><X size={14} /> Скрыть</button>
         </div>
       </div>
@@ -927,10 +922,10 @@ const FACTOR_LABELS: Record<string, string> = {
   dislike_penalty: "Пользователь отметил как нерелевантный",
 };
 const FACTOR_COLORS: Record<string, string> = {
-  history: "#0D9B68", category: "#167C85", session: "#F67319",
-  collaborative: "#48B8C2", profile_mismatch: "#DB2B21", negative: "#DB2B21",
-  popularity: "#264B82", bm25: "#264B82", semantic: "#264B82",
-  catboost: "#264B82", like_boost: "#0D9B68", dislike_penalty: "#DB2B21",
+  history: "var(--success)", category: "var(--text-detail)", session: "var(--warning)",
+  collaborative: "var(--info)", profile_mismatch: "var(--danger)", negative: "var(--danger)",
+  popularity: "var(--accent)", bm25: "var(--accent)", semantic: "var(--accent)",
+  catboost: "var(--accent)", like_boost: "var(--success)", dislike_penalty: "var(--danger)",
 };
 
 function ThinkingModal({ item, position, query, correctedQuery, collectiveInsights, appliedRewrites, onClose }: {
@@ -940,11 +935,7 @@ function ThinkingModal({ item, position, query, correctedQuery, collectiveInsigh
   appliedRewrites: string[];
   onClose: () => void;
 }) {
-  useEffect(() => {
-    const h = (e: KeyboardEvent) => e.key === "Escape" && onClose();
-    document.addEventListener("keydown", h);
-    return () => document.removeEventListener("keydown", h);
-  }, [onClose]);
+  const dialogRef = usePortalDialog(onClose);
 
   const maxWeight = Math.max(...item.explanations.map(e => Math.abs(e.weight)), 1);
   const wasCorrected = correctedQuery && correctedQuery !== query;
@@ -953,58 +944,58 @@ function ThinkingModal({ item, position, query, correctedQuery, collectiveInsigh
   const totalScore = item.explanations.reduce((s, e) => s + e.weight, 0);
 
   const PIPELINE_STEPS = [
-    { label: "1. Ввод запроса", detail: `Пользователь ввёл «${query}»`, color: "#264B82" },
-    { label: "2. Лемматизация", detail: "pymorphy2 приводит слова к начальной форме: ручке → ручка, масла → масло, карандашей → карандаш", color: "#264B82" },
-    { label: "3. Проверка опечаток", detail: wasCorrected ? `SymSpell нашёл ошибку: «${query}» → «${correctedQuery}»` : "SymSpell не нашёл ошибок в запросе", color: wasCorrected ? "#F67319" : "#0D9B68" },
-    { label: "4. Синонимы и контекст", detail: "NLP-модель определяет отрасль пользователя и подбирает контекстные синонимы", color: "#264B82" },
-    { label: "5. Поиск кандидатов", detail: "BM25 (точное текстовое совпадение) + BERT-эмбеддинги (семантическая близость) ищут топ-100 товаров", color: "#264B82" },
-    { label: "6. Персонализация", detail: "История закупок, категории интересов, лайки/дизлайки корректируют позиции", color: "#0D9B68" },
-    { label: "7. ML-ранжирование", detail: "CatBoost модель учитывает 20+ признаков для финального порядка выдачи", color: "#264B82" },
+    { label: "1. Ввод запроса", detail: `Пользователь ввёл «${query}»`, color: "var(--accent)" },
+    { label: "2. Лемматизация", detail: "pymorphy2 приводит слова к начальной форме: ручке → ручка, масла → масло, карандашей → карандаш", color: "var(--accent)" },
+    { label: "3. Проверка опечаток", detail: wasCorrected ? `SymSpell нашёл ошибку: «${query}» → «${correctedQuery}»` : "SymSpell не нашёл ошибок в запросе", color: wasCorrected ? "var(--warning)" : "var(--success)" },
+    { label: "4. Синонимы и контекст", detail: "NLP-модель определяет отрасль пользователя и подбирает контекстные синонимы", color: "var(--accent)" },
+    { label: "5. Поиск кандидатов", detail: "BM25 (точное текстовое совпадение) + BERT-эмбеддинги (семантическая близость) ищут топ-100 товаров", color: "var(--accent)" },
+    { label: "6. Персонализация", detail: "История закупок, категории интересов, лайки/дизлайки корректируют позиции", color: "var(--success)" },
+    { label: "7. ML-ранжирование", detail: "CatBoost модель учитывает 20+ признаков для финального порядка выдачи", color: "var(--accent)" },
   ];
 
   return (
-    <div onClick={e => { if (e.target === e.currentTarget) onClose(); }}
+    <div className="kit-modal-backdrop" onClick={e => { if (e.target === e.currentTarget) onClose(); }}
       style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,.45)", display: "flex", alignItems: "center", justifyContent: "center", padding: 16, zIndex: 1000 }}>
-      <div style={{ background: "#fff", borderRadius: 10, boxShadow: "0 8px 40px rgba(0,0,0,.25)", width: "100%", maxWidth: 620, maxHeight: "92vh", overflow: "auto" }}>
+      <div className="kit-dialog" ref={dialogRef} role="dialog" aria-modal="true" aria-label="Объяснение ранжирования" tabIndex={-1}>
         {/* header */}
-        <div style={{ background: "#264B82", padding: "16px 20px", borderRadius: "10px 10px 0 0", display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
+        <div style={{ background: "var(--accent)", padding: "16px 20px", borderRadius: "10px 10px 0 0", display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
           <div>
             <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 4 }}>
-              <Brain size={18} color="#fff" />
-              <span style={{ color: "#fff", fontWeight: 700, fontSize: 15 }}>Как нейросеть приняла решение</span>
+              <Brain size={18} color="var(--surface)" />
+              <span style={{ color: "var(--surface)", fontWeight: 600, fontSize: 17 }}>Как нейросеть приняла решение</span>
             </div>
-            <p style={{ color: "#a3bfe0", fontSize: 12, margin: 0 }}>Подробный разбор: от запроса до позиции #{position}</p>
+            <p style={{ color: "var(--accent-soft)", fontSize: 14, margin: 0 }}>Подробный разбор: от запроса до позиции #{position}</p>
           </div>
-          <button onClick={onClose} style={{ background: "rgba(255,255,255,.15)", border: "none", color: "#fff", cursor: "pointer", borderRadius: 4, padding: 4 }}><X size={16} /></button>
+          <button aria-label="Закрыть объяснение" onClick={onClose} style={{ background: "rgba(255,255,255,.15)", border: "none", color: "var(--surface)", cursor: "pointer", borderRadius: 4, padding: 4 }}><X size={16} /></button>
         </div>
 
         <div style={{ padding: 20, display: "flex", flexDirection: "column", gap: 20 }}>
           {/* Product card */}
-          <div style={{ background: "#E7EEF7", borderRadius: 6, padding: "12px 14px" }}>
-            <div style={{ fontWeight: 700, fontSize: 14, color: "#1A1A1A" }}>{item.name}</div>
-            {item.category && <div style={{ fontSize: 12, color: "#8C8C8C", marginTop: 2 }}>{item.category}</div>}
+          <div style={{ background: "var(--canvas)", borderRadius: 6, padding: "12px 14px" }}>
+            <div style={{ fontWeight: 600, fontSize: 16, color: "var(--text)" }}>{item.name}</div>
+            {item.category && <div style={{ fontSize: 14, color: "var(--muted)", marginTop: 2 }}>{item.category}</div>}
             <div style={{ display: "flex", gap: 12, marginTop: 8, flexWrap: "wrap" }}>
-              <span style={{ fontSize: 12, background: "#264B82", color: "#fff", padding: "2px 8px", borderRadius: 4, fontWeight: 700 }}>Позиция #{position}</span>
-              <span style={{ fontSize: 12, fontFamily: "monospace", color: "#264B82" }}>score: {item.score.toFixed(3)}</span>
-              {item.avg_price != null && <span style={{ fontSize: 12, color: "#0D9B68", fontWeight: 600 }}>~{item.avg_price.toLocaleString("ru-RU")} ₽</span>}
+              <span style={{ fontSize: 14, background: "var(--accent)", color: "var(--surface)", padding: "2px 8px", borderRadius: 4, fontWeight: 600 }}>Позиция #{position}</span>
+              <span style={{ fontSize: 14, fontFamily: "monospace", color: "var(--accent)" }}>Оценка: {item.score.toFixed(3)}</span>
+              {item.avg_price != null && <span style={{ fontSize: 14, color: "var(--success)", fontWeight: 600 }}>~{item.avg_price.toLocaleString("ru-RU")} ₽</span>}
             </div>
           </div>
 
           {/* NLP Pipeline */}
           <div>
-            <p style={{ fontSize: 11, fontWeight: 700, color: "#8C8C8C", textTransform: "uppercase", margin: "0 0 12px" }}>Пайплайн обработки запроса</p>
+            <p style={{ fontSize: 13, fontWeight: 600, color: "var(--muted)", textTransform: "none", margin: "0 0 12px" }}>Пайплайн обработки запроса</p>
             <div style={{ display: "flex", flexDirection: "column", gap: 0 }}>
               {PIPELINE_STEPS.map((step, i) => (
                 <div key={i} style={{ display: "flex", gap: 10, paddingBottom: 10, position: "relative" }}>
                   {i < PIPELINE_STEPS.length - 1 && (
-                    <div style={{ position: "absolute", left: 9, top: 20, bottom: 0, width: 2, background: "#E7EEF7" }} />
+                    <div style={{ position: "absolute", left: 9, top: 20, bottom: 0, width: 2, background: "var(--canvas)" }} />
                   )}
                   <div style={{ width: 20, height: 20, borderRadius: "50%", background: step.color, flexShrink: 0, display: "flex", alignItems: "center", justifyContent: "center" }}>
-                    <span style={{ color: "#fff", fontSize: 9, fontWeight: 800 }}>{i + 1}</span>
+                    <span style={{ color: "var(--surface)", fontSize: 12, fontWeight: 600 }}>{i + 1}</span>
                   </div>
                   <div style={{ flex: 1 }}>
-                    <div style={{ fontSize: 12, fontWeight: 700, color: "#1A1A1A" }}>{step.label}</div>
-                    <div style={{ fontSize: 11, color: "#7F8792", lineHeight: 1.5 }}>{step.detail}</div>
+                    <div style={{ fontSize: 14, fontWeight: 600, color: "var(--text)" }}>{step.label}</div>
+                    <div style={{ fontSize: 13, color: "var(--muted)", lineHeight: 1.5 }}>{step.detail}</div>
                   </div>
                 </div>
               ))}
@@ -1014,22 +1005,22 @@ function ThinkingModal({ item, position, query, correctedQuery, collectiveInsigh
           {/* Positive factors */}
           {positiveFactors.length > 0 && (
             <div>
-              <p style={{ fontSize: 11, fontWeight: 700, color: "#0D9B68", textTransform: "uppercase", marginBottom: 10 }}>
+              <p style={{ fontSize: 13, fontWeight: 600, color: "var(--success)", textTransform: "none", marginBottom: 10 }}>
                 Почему товар ПОДНЯЛСЯ в выдаче
               </p>
               {positiveFactors.map((exp, i) => {
-                const barColor = FACTOR_COLORS[exp.factor] ?? "#264B82";
+                const barColor = FACTOR_COLORS[exp.factor] ?? "var(--accent)";
                 const barW = Math.min(exp.weight / maxWeight * 100, 100);
                 return (
                   <div key={i} style={{ marginBottom: 12 }}>
                     <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 3 }}>
-                      <span style={{ fontSize: 13, color: "#1A1A1A" }}>{FACTOR_LABELS[exp.factor] ?? exp.reason}</span>
-                      <span style={{ fontSize: 12, fontFamily: "monospace", color: barColor, fontWeight: 700 }}>+{exp.weight.toFixed(2)}</span>
+                      <span style={{ fontSize: 15, color: "var(--text)" }}>{FACTOR_LABELS[exp.factor] ?? exp.reason}</span>
+                      <span style={{ fontSize: 14, fontFamily: "monospace", color: barColor, fontWeight: 600 }}>+{exp.weight.toFixed(2)}</span>
                     </div>
-                    <div style={{ height: 6, background: "#E7EEF7", borderRadius: 3, overflow: "hidden" }}>
+                    <div style={{ height: 6, background: "var(--canvas)", borderRadius: 3, overflow: "hidden" }}>
                       <div style={{ height: "100%", width: `${barW}%`, background: barColor, borderRadius: 3 }} />
                     </div>
-                    <div style={{ fontSize: 10, color: "#8C8C8C", marginTop: 2 }}>{exp.reason}</div>
+                    <div style={{ fontSize: 12, color: "var(--muted)", marginTop: 2 }}>{exp.reason}</div>
                   </div>
                 );
               })}
@@ -1039,7 +1030,7 @@ function ThinkingModal({ item, position, query, correctedQuery, collectiveInsigh
           {/* Negative factors */}
           {negativeFactors.length > 0 && (
             <div>
-              <p style={{ fontSize: 11, fontWeight: 700, color: "#DB2B21", textTransform: "uppercase", marginBottom: 10 }}>
+              <p style={{ fontSize: 13, fontWeight: 600, color: "var(--danger)", textTransform: "none", marginBottom: 10 }}>
                 Что СНИЖАЕТ позицию
               </p>
               {negativeFactors.map((exp, i) => {
@@ -1047,13 +1038,13 @@ function ThinkingModal({ item, position, query, correctedQuery, collectiveInsigh
                 return (
                   <div key={i} style={{ marginBottom: 12 }}>
                     <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 3 }}>
-                      <span style={{ fontSize: 13, color: "#1A1A1A" }}>{FACTOR_LABELS[exp.factor] ?? exp.reason}</span>
-                      <span style={{ fontSize: 12, fontFamily: "monospace", color: "#DB2B21", fontWeight: 700 }}>{exp.weight.toFixed(2)}</span>
+                      <span style={{ fontSize: 15, color: "var(--text)" }}>{FACTOR_LABELS[exp.factor] ?? exp.reason}</span>
+                      <span style={{ fontSize: 14, fontFamily: "monospace", color: "var(--danger)", fontWeight: 600 }}>{exp.weight.toFixed(2)}</span>
                     </div>
-                    <div style={{ height: 6, background: "#FDECEA", borderRadius: 3, overflow: "hidden" }}>
-                      <div style={{ height: "100%", width: `${barW}%`, background: "#DB2B21", borderRadius: 3 }} />
+                    <div style={{ height: 6, background: "var(--danger-soft)", borderRadius: 3, overflow: "hidden" }}>
+                      <div style={{ height: "100%", width: `${barW}%`, background: "var(--danger)", borderRadius: 3 }} />
                     </div>
-                    <div style={{ fontSize: 10, color: "#8C8C8C", marginTop: 2 }}>{exp.reason}</div>
+                    <div style={{ fontSize: 12, color: "var(--muted)", marginTop: 2 }}>{exp.reason}</div>
                   </div>
                 );
               })}
@@ -1062,8 +1053,8 @@ function ThinkingModal({ item, position, query, correctedQuery, collectiveInsigh
 
           {/* No signals */}
           {item.explanations.length === 0 && (
-            <div style={{ background: "#F8FAFE", borderRadius: 6, padding: 14 }}>
-              <p style={{ fontSize: 13, color: "#7F8792", margin: 0 }}>
+            <div style={{ background: "var(--surface-soft)", borderRadius: 6, padding: 14 }}>
+              <p style={{ fontSize: 15, color: "var(--muted)", margin: 0 }}>
                 Ранжирование только по текстовому совпадению (BM25 + семантика). Персональных сигналов пока нет — начните взаимодействовать с товарами, чтобы система начала подстраиваться.
               </p>
             </div>
@@ -1071,11 +1062,11 @@ function ThinkingModal({ item, position, query, correctedQuery, collectiveInsigh
 
           {/* Applied rewrites */}
           {appliedRewrites.length > 0 && (
-            <div style={{ background: "#F0F7FF", borderRadius: 6, padding: "10px 14px", border: "1px solid #D4E4F7" }}>
-              <div style={{ fontSize: 11, fontWeight: 700, color: "#3A5A8C", textTransform: "uppercase", marginBottom: 6 }}>Как система переработала запрос</div>
+            <div style={{ background: "var(--canvas)", borderRadius: 6, padding: "10px 14px", border: "1px solid var(--border)" }}>
+              <div style={{ fontSize: 13, fontWeight: 600, color: "var(--text-detail)", textTransform: "none", marginBottom: 6 }}>Как система переработала запрос</div>
               {appliedRewrites.map((r, i) => (
-                <div key={i} style={{ fontSize: 11, color: "#3A5A8C", padding: "2px 0", display: "flex", alignItems: "center", gap: 6 }}>
-                  <span style={{ background: "#E0EDFF", padding: "1px 6px", borderRadius: 3, fontWeight: 600 }}>{r}</span>
+                <div key={i} style={{ fontSize: 13, color: "var(--text-detail)", padding: "2px 0", display: "flex", alignItems: "center", gap: 6 }}>
+                  <span style={{ background: "var(--neutral-soft)", padding: "1px 6px", borderRadius: 3, fontWeight: 600 }}>{r}</span>
                 </div>
               ))}
             </div>
@@ -1083,31 +1074,31 @@ function ThinkingModal({ item, position, query, correctedQuery, collectiveInsigh
 
           {/* Collective learning */}
           {collectiveInsights.length > 0 && (
-            <div style={{ background: "#F0FFF7", borderRadius: 6, padding: "10px 14px", border: "1px solid #B2DFD0" }}>
-              <div style={{ fontSize: 11, fontWeight: 700, color: "#0D9B68", textTransform: "uppercase", marginBottom: 6 }}>Обучение на пользователях</div>
-              <div style={{ fontSize: 11, color: "#1A1A1A", lineHeight: 1.7, marginBottom: 6 }}>
+            <div style={{ background: "var(--success-wash)", borderRadius: 6, padding: "10px 14px", border: "1px solid var(--success-border)" }}>
+              <div style={{ fontSize: 13, fontWeight: 600, color: "var(--success)", textTransform: "none", marginBottom: 6 }}>Обучение на пользователях</div>
+              <div style={{ fontSize: 13, color: "var(--text)", lineHeight: 1.7, marginBottom: 6 }}>
                 Система анализирует, какие товары выбирают другие пользователи по аналогичным запросам, и дообучается:
               </div>
               {collectiveInsights.map((ins, i) => (
-                <div key={i} style={{ fontSize: 12, padding: "4px 0", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                <div key={i} style={{ fontSize: 14, padding: "4px 0", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
                   <span style={{ fontWeight: 600 }}>«{ins.product_name}»</span>
-                  <span style={{ fontSize: 10, background: "#E6F7F1", color: "#0D9B68", padding: "2px 8px", borderRadius: 10, fontWeight: 700 }}>
+                  <span style={{ fontSize: 12, background: "var(--success-soft)", color: "var(--success)", padding: "2px 8px", borderRadius: 10, fontWeight: 600 }}>
                     {ins.user_count} пользователей
                   </span>
                 </div>
               ))}
-              <div style={{ fontSize: 10, color: "#8C8C8C", marginTop: 6 }}>
+              <div style={{ fontSize: 12, color: "var(--muted)", marginTop: 6 }}>
                 Чем больше пользователей выбирают товар по запросу, тем выше он будет в выдаче для всех.
               </div>
             </div>
           )}
 
           {/* Summary */}
-          <div style={{ background: "#F8FAFE", borderRadius: 6, padding: "12px 14px", borderLeft: "3px solid #264B82" }}>
-            <div style={{ fontSize: 11, fontWeight: 700, color: "#264B82", textTransform: "uppercase", marginBottom: 6 }}>Итог</div>
-            <div style={{ fontSize: 12, color: "#1A1A1A", lineHeight: 1.6 }}>
+          <div style={{ background: "var(--surface-soft)", borderRadius: 6, padding: "12px 14px", borderLeft: "3px solid var(--accent)" }}>
+            <div style={{ fontSize: 13, fontWeight: 600, color: "var(--accent)", textTransform: "none", marginBottom: 6 }}>Итог</div>
+            <div style={{ fontSize: 14, color: "var(--text)", lineHeight: 1.6 }}>
               Итоговый балл: <b>{item.score.toFixed(3)}</b>
-              {item.explanations.length > 0 && (<> (базовый + персонализация: <b style={{ color: totalScore >= 0 ? "#0D9B68" : "#DB2B21" }}>{totalScore >= 0 ? "+" : ""}{totalScore.toFixed(2)}</b>)</>)}.
+              {item.explanations.length > 0 && (<> (базовый + персонализация: <b style={{ color: totalScore >= 0 ? "var(--success)" : "var(--danger)" }}>{totalScore >= 0 ? "+" : ""}{totalScore.toFixed(2)}</b>)</>)}.
               {" "}Товар занял позицию <b>#{position}</b> из всех кандидатов.
               {positiveFactors.length > 0 && (<> Основной фактор повышения: <b>{FACTOR_LABELS[positiveFactors[0].factor] ?? positiveFactors[0].reason}</b>.</>)}
             </div>
